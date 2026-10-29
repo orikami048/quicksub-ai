@@ -555,13 +555,6 @@
         const faqContainer = document.getElementById('faqContainer');
         const footerCopyright = document.getElementById('footerCopyright');
 
-        // 自动清理浏览器内残留的残缺旧缓存（交由服务端本地磁盘缓存托管）
-        if (window.caches) {
-            caches.keys().then(keys => {
-                for (const k of keys) caches.delete(k);
-            }).catch(() => {});
-        }
-
         // Apply Language Switch (and automatically bind internal network mirror)
         function switchLanguage(lang) {
             currentLang = lang;
