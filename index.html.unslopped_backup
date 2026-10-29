@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SubExtract - 专业视频字幕提取工具 (WebGPU)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        surface: {
+                            50: '#18191c',
+                            100: '#131517',
+                            200: '#0e1012',
+                            border: '#24272b'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', 'Helvetica', 'Arial', 'sans-serif'],
+                        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- OpenCC JS for deterministic Traditional-to-Simplified Chinese normalization -->
+    <script src="https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.js"></script>
+    <style>
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: #0e1012; }
+        ::-webkit-scrollbar-thumb { background: #26292e; border-radius: 3px; }
+        .ad-slot-frame {
+            border: 1px solid #24272b;
+            background: #111315;
+        }
+    </style>
+</head>
+<body class="bg-[#0a0b0c] text-zinc-200 min-h-screen flex flex-col font-sans antialiased selection:bg-zinc-700 selection:text-white">
+
+    <!-- Header Navigation -->
+    <header class="border-b border-[#202327] bg-[#0e1012]/80 backdrop-blur sticky top-0 z-50">
+        <div class="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
+            <!-- Brand -->
+            <div class="flex items-center space-x-2.5">
+                <div class="w-7 h-7 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center text-zinc-100 font-mono font-bold text-xs">
+                    CC
+                </div>
+                <div>
+                    <span class="font-semibold text-sm tracking-tight text-zinc-100">SubExtract</span>
+                    <span class="ml-2 text-[10px] px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700 font-mono">WebGPU</span>
+                </div>
+            </div>
+
+            <!-- Header Controls: GPU Status, Cache Clean, Lang Switch -->
+            <div class="flex items-center space-x-2.5">
+                <!-- Hardware Acceleration Status -->
+                <div id="gpuBadge" class="hidden sm:flex items-center space-x-1.5 text-[11px] px-2 py-0.5 rounded bg-zinc-900 text-zinc-400 border border-zinc-800">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500" id="gpuDot"></span>
+                    <span id="gpuText">GPU 加速已就绪</span>
+                </div>
+
+                <!-- Storage / Uninstall Button -->
+                <button id="cleanCacheBtn" class="flex items-center space-x-1 text-[11px] px-2 py-0.5 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 border border-zinc-800 transition" title="管理模型本地持久化存储">
+                    <i class="fa-regular fa-hard-drive text-[10px]"></i>
+                    <span id="cleanCacheText">缓存: 检查中...</span>
+                </button>
+
+                <!-- Language Segmented Control -->
+                <div class="flex items-center bg-zinc-900 border border-zinc-800 rounded p-0.5 text-xs">
+                    <button id="langZhBtn" class="px-2 py-0.5 rounded text-[11px] font-medium transition bg-zinc-800 text-zinc-100">中文</button>
+                    <button id="langEnBtn" class="px-2 py-0.5 rounded text-[11px] font-medium transition text-zinc-400 hover:text-zinc-200">EN</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 max-w-6xl mx-auto px-4 py-8 w-full space-y-6">
+
+        <!-- Title / Overview (Terse & Professional) -->
+        <div class="space-y-1.5 border-b border-[#202327] pb-5">
+            <h1 class="text-xl sm:text-2xl font-semibold tracking-tight text-zinc-100" id="heroTitle">
+                视频字幕自动提取工具
+            </h1>
+            <p class="text-xs sm:text-sm text-zinc-400 max-w-2xl" id="heroSubtitle">
+                基于 WebGPU 浏览器本地推理架构，提取精确时间轴对齐文本，支持标准 SRT / VTT 格式导出。
+            </p>
+        </div>
+
+        <!-- Ad Slot: Header Placement -->
+        <div id="adSlotHeader" class="ad-slot-frame rounded-lg p-3 relative overflow-hidden flex flex-col justify-center min-h-[76px]">
+            <div class="text-[10px] text-zinc-500 uppercase tracking-wider font-mono mb-1" id="adSlot1Tag">Sponsorship / Sponsored Showcase</div>
+            <div class="flex items-center justify-between text-xs text-zinc-400">
+                <span id="adSlot1Content">专业创作者音频装备与自动化视频处理插件推荐位</span>
+                <span class="text-[10px] text-zinc-500 font-mono">728 × 90 Standard</span>
+            </div>
+        </div>
+
+        <!-- Upload & Settings Section -->
+        <div class="bg-[#121416] border border-[#222529] rounded-xl p-5 space-y-5">
+            
+            <!-- File Drop Area -->
+            <div id="dropZone" class="border border-dashed border-[#2b2e34] hover:border-zinc-500 rounded-lg p-7 text-center transition cursor-pointer bg-[#0c0d0f] hover:bg-[#101214] group">
+                <input type="file" id="fileInput" class="hidden" accept="video/*,audio/*,.mp4,.mkv,.mov,.webm,.mp3,.wav,.m4a">
+                <div class="flex flex-col items-center space-y-2.5">
+                    <div class="w-10 h-10 rounded-lg bg-zinc-800/80 border border-zinc-700/60 flex items-center justify-center text-zinc-400 group-hover:text-zinc-200 transition">
+                        <i class="fa-solid fa-arrow-up-from-bracket text-sm"></i>
+                    </div>
+                    <div>
+                        <p class="text-sm font-medium text-zinc-200" id="dropTitle">
+                            选择或拖入媒体文件
+                        </p>
+                        <p class="text-[11px] text-zinc-400 mt-0.5" id="dropSubtitle">
+                            支持 MP4, MOV, WebM, MP3, WAV, M4A 格式（前端本地解码）
+                        </p>
+                    </div>
+                    <div id="fileInfo" class="hidden mt-1 text-xs font-mono text-zinc-300 bg-zinc-800 px-2.5 py-1 rounded border border-zinc-700">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Parameters Grid -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                <!-- Model Size -->
+                <div>
+                    <label class="block text-[11px] font-medium uppercase tracking-wider text-zinc-400 mb-1.5" id="labelModel">模型精度</label>
+                    <select id="modelSelect" class="w-full bg-[#16181b] border border-[#272a2f] rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-zinc-500 text-zinc-200 font-sans">
+                        <option value="onnx-community/whisper-small" selected>Whisper Small (高精度 / 推荐)</option>
+                        <option value="onnx-community/whisper-base">Whisper Base (轻量极速 / 备选)</option>
+                    </select>
+                </div>
+
+                <!-- Language -->
+                <div>
+                    <label class="block text-[11px] font-medium uppercase tracking-wider text-zinc-400 mb-1.5" id="labelLang">识别音频语言</label>
+                    <select id="langSelect" class="w-full bg-[#16181b] border border-[#272a2f] rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-zinc-500 text-zinc-200 font-sans">
+                        <option value="chinese" selected>中文 (普通话 / 粤语)</option>
+                        <option value="english">英语 (English)</option>
+                        <option value="japanese">日语 (日本語)</option>
+                        <option value="auto">自动检测 (Auto Detect)</option>
+                        <option value="spanish">西班牙语 (Spanish)</option>
+                        <option value="korean">韩语 (Korean)</option>
+                    </select>
+                </div>
+
+                <!-- Inference Acceleration -->
+                <div>
+                    <label class="block text-[11px] font-medium uppercase tracking-wider text-zinc-400 mb-1.5" id="labelDevice">推理设备</label>
+                    <select id="deviceSelect" class="w-full bg-[#16181b] border border-[#272a2f] rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-zinc-500 text-zinc-200 font-sans">
+                        <option value="webgpu" selected>WebGPU (独立 GPU 加速)</option>
+                        <option value="wasm">WASM (CPU 备用模式)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Start Action Button -->
+            <button id="startBtn" disabled class="w-full py-2.5 px-4 rounded-lg font-medium text-xs text-zinc-900 bg-zinc-100 hover:bg-white active:bg-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center justify-center space-x-2">
+                <i class="fa-solid fa-play text-[10px]"></i>
+                <span id="startBtnText">开始提取字幕</span>
+            </button>
+        </div>
+
+        <!-- Progress Area -->
+        <div id="progressSection" class="hidden bg-[#121416] border border-[#222529] rounded-xl p-5 space-y-3.5">
+            <div class="flex items-center justify-between text-xs">
+                <div class="flex items-center space-x-2">
+                    <span class="w-2 h-2 rounded-full bg-zinc-400 animate-ping"></span>
+                    <span id="statusMessage" class="font-medium text-zinc-200">准备中...</span>
+                </div>
+                <span id="percentText" class="font-mono text-zinc-400">0%</span>
+            </div>
+
+            <!-- Monotonic Progress Bar -->
+            <div class="w-full bg-[#1b1e22] rounded-full h-1.5 overflow-hidden">
+                <div id="progressBar" class="bg-zinc-200 h-1.5 rounded-full transition-all duration-200 w-0"></div>
+            </div>
+
+            <div class="flex items-center justify-between text-[11px] text-zinc-500 font-mono">
+                <span id="subStageFile">正在等待任务调度</span>
+                <span id="subStageStatus">Step 1/2</span>
+            </div>
+
+            <!-- Ad Slot: Processing Wait Placement -->
+            <div id="adSlotWait" class="ad-slot-frame rounded-lg p-3 mt-2 text-xs text-zinc-400 flex items-center justify-between">
+                <div>
+                    <span class="text-[10px] text-zinc-500 uppercase tracking-wider font-mono block">Sponsored Message</span>
+                    <span id="adSlot2Desc">云端长视频批量转写与专业双语字幕校对工作流服务</span>
+                </div>
+                <span class="text-[10px] text-zinc-500 font-mono">In-Stream Banner</span>
+            </div>
+        </div>
+
+        <!-- Workspace Section (Video & Subtitles) -->
+        <div id="resultSection" class="hidden space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#202327] pb-3">
+                <div class="flex items-center space-x-2.5">
+                    <h2 class="text-sm font-semibold text-zinc-100" id="resultTitle">字幕提取就绪</h2>
+                    <span id="speedBadge" class="text-[11px] font-mono px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700"></span>
+                </div>
+                <!-- Exports -->
+                <div class="flex items-center flex-wrap gap-1.5">
+                    <button id="downloadSrtBtn" class="text-xs font-medium bg-zinc-100 hover:bg-white text-zinc-900 px-2.5 py-1.5 rounded transition flex items-center space-x-1.5">
+                        <i class="fa-solid fa-arrow-down text-[10px]"></i>
+                        <span id="btnExportSrt">导出 .SRT</span>
+                    </button>
+                    <button id="downloadVttBtn" class="text-xs font-medium bg-zinc-850 hover:bg-zinc-800 text-zinc-300 border border-zinc-750 px-2.5 py-1.5 rounded transition">
+                        导出 .VTT
+                    </button>
+                    <button id="downloadTxtBtn" class="text-xs font-medium bg-zinc-850 hover:bg-zinc-800 text-zinc-300 border border-zinc-750 px-2.5 py-1.5 rounded transition">
+                        导出 .TXT
+                    </button>
+                    <button id="copyAllBtn" class="text-xs font-medium bg-zinc-850 hover:bg-zinc-800 text-zinc-300 border border-zinc-750 px-2.5 py-1.5 rounded transition flex items-center space-x-1">
+                        <i class="fa-regular fa-copy text-[10px]"></i>
+                        <span id="btnCopyAll">复制全文</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Studio Two-column Grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                <!-- Preview Player -->
+                <div class="lg:col-span-5 space-y-2">
+                    <div class="bg-black rounded-lg overflow-hidden border border-[#202327] aspect-video flex items-center justify-center relative">
+                        <video id="videoPlayer" controls class="w-full h-full object-contain"></video>
+                    </div>
+                    <div class="text-[11px] text-zinc-500 flex items-center justify-between font-mono">
+                        <span id="previewTrackDesc">实时字幕轨道已内嵌</span>
+                        <span id="totalDurationText">00:00</span>
+                    </div>
+                </div>
+
+                <!-- Subtitles Timeline -->
+                <div class="lg:col-span-7 bg-[#121416] border border-[#202327] rounded-lg p-3.5 flex flex-col h-[400px]">
+                    <div class="text-[11px] font-medium text-zinc-400 mb-2 flex justify-between items-center pb-2 border-b border-[#202327]">
+                        <span><span id="segTitleText">字幕分句</span> (<span id="segmentCount" class="font-mono">0</span>)</span>
+                        <span class="text-zinc-500 text-[10px]" id="segEditableHint">支持双击行内校对</span>
+                    </div>
+                    <div id="subtitlesList" class="flex-1 overflow-y-auto space-y-1.5 pr-1">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Documentation / Technical Notes -->
+        <section class="border-t border-[#202327] pt-6 space-y-4">
+            <h3 class="text-xs font-semibold uppercase tracking-wider text-zinc-400" id="faqHeaderTitle">技术架构与规范说明</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-zinc-400" id="faqContainer">
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-[#202327] bg-[#090a0b] text-zinc-500 text-xs py-4">
+        <div class="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px]">
+            <p id="footerCopyright">SubExtract Engine · WebGPU Client-side Inference</p>
+            <div class="flex space-x-3 text-zinc-400">
+                <a href="#" class="hover:text-zinc-200">文档</a>
+                <a href="#" class="hover:text-zinc-200">导出格式规范</a>
+                <a href="#" class="hover:text-zinc-200">商业投放合作</a>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Uninstall Model Confirmation Modal -->
+    <div id="uninstallModal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-[#141618] border border-[#272a2f] rounded-xl max-w-sm w-full p-5 shadow-xl space-y-3.5">
+            <div class="space-y-1">
+                <h3 class="font-semibold text-zinc-100 text-sm" id="modalTitle">卸载本地 AI 模型缓存</h3>
+                <p class="text-xs text-zinc-400 leading-relaxed" id="modalDesc">
+                    当前本地已持久化缓存：<span id="modalCacheSize" class="font-mono font-medium text-zinc-200">0 MB</span>。<br/>
+                    确认彻底移除本地权重文件并释放磁盘空间？
+                </p>
+            </div>
+
+            <div class="flex items-center justify-end space-x-2 pt-2">
+                <button id="modalCancelBtn" class="px-3 py-1.5 rounded text-xs font-medium text-zinc-300 bg-zinc-800 hover:bg-zinc-700 transition">
+                    取消
+                </button>
+                <button id="modalConfirmBtn" class="px-3 py-1.5 rounded text-xs font-medium text-white bg-red-600 hover:bg-red-500 transition">
+                    <span id="modalConfirmText">确认删除</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Script -->
+    <script>
+        // State
+        let currentLang = 'zh';
+        let currentMirror = 'china';
+        let selectedFile = null;
+        let audioFloat32 = null;
+        let subtitleChunks = [];
+        let worker = null;
+        let vttBlobUrl = null;
+        let currentCacheSizeBytes = 0;
+
+        // Auto purge stale sandbox CacheStorage on startup
+        if (window.caches) {
+            caches.keys().then(keys => {
+                for (const k of keys) caches.delete(k);
+            }).catch(() => {});
+        }
+
+        // Dictionaries (Sober, Professional, Zero Fluff)
+        const i18n = {
+            zh: {
+                title: "SubExtract - 专业视频字幕提取工具 (WebGPU)",
+                heroTitle: "视频字幕自动提取工具",
+                heroSubtitle: "基于 WebGPU 浏览器本地推理架构，提取精确时间轴对齐文本，支持标准 SRT / VTT 格式导出。",
+                dropTitle: "选择或拖入媒体文件",
+                dropSubtitle: "支持 MP4, MOV, WebM, MP3, WAV, M4A 格式（前端本地解码）",
+                labelModel: "模型精度",
+                labelLang: "识别音频语言",
+                labelDevice: "推理设备",
+                startBtn: "开始提取字幕",
+                btnExportSrt: "导出 .SRT",
+                btnCopyAll: "复制全文",
+                previewTrackDesc: "实时字幕轨道已内嵌",
+                segTitleText: "字幕分句",
+                segEditableHint: "支持双击行内校对",
+                ad1Tag: "Sponsorship / 赞助展示位",
+                ad1Content: "专业视频剪辑硬件与自动化字幕工作流服务推荐",
+                ad2Desc: "支持长音频批量批处理与双语对照导出",
+                step1Label: "Step 1/2: 模型初始化与权重同步",
+                step2Label: "Step 2/2: WebGPU 显卡推理转写中",
+                modalTitle: "卸载本地 AI 模型缓存",
+                modalDesc: "当前本地已持久化缓存：",
+                modalCancel: "取消",
+                modalConfirm: "确认删除",
+                faqs: [
+                    {
+                        q: "首次加载机制与缓存管理",
+                        a: "首次使用需将选定精度的 Whisper 权重同步至本地磁盘（约 240MB~560MB）。完成落盘后后续运行直接由本地高速读取，无需再次下载；可随时通过右上角一键释放磁盘空间。"
+                    },
+                    {
+                        q: "文本规范化与繁简对齐",
+                        a: "内置 OpenCC 词汇级规范化引擎与前置 Prompt 约束，自动将输出文本规整为中国大陆国家通用规范汉字，消除传统 ASR 语料的繁体偏差。"
+                    },
+                    {
+                        q: "主流剪辑软件兼容性",
+                        a: "导出的 .SRT 文件采用标准 UTF-8 编码与精确毫秒级时间轴，可直接导入剪映专业版、Adobe Premiere Pro、Final Cut Pro、DaVinci Resolve 进行对齐。"
+                    },
+                    {
+                        q: "数据隐私与沙箱安全",
+                        a: "音频解码与神经网络推理完全封闭于本地 WebGPU / Web Worker 沙箱环境中，媒体源文件无需上传至任何远程服务器。"
+                    }
+                ],
+                copyright: "SubExtract Engine · WebGPU Client-side Inference"
+            },
+            en: {
+                title: "SubExtract - Automatic Subtitle Extractor (WebGPU)",
+                heroTitle: "Automatic Subtitle Extractor",
+                heroSubtitle: "Client-side WebGPU neural transcription. Extracts accurate timestamped text with standard SRT / VTT export.",
+                dropTitle: "Select or drop media file",
+                dropSubtitle: "Supports MP4, MOV, WebM, MP3, WAV, M4A (Client-side decoded)",
+                labelModel: "Model Precision",
+                labelLang: "Audio Language",
+                labelDevice: "Inference Engine",
+                startBtn: "Extract Subtitles",
+                btnExportSrt: "Export .SRT",
+                btnCopyAll: "Copy All",
+                previewTrackDesc: "Embedded subtitle track active",
+                segTitleText: "Subtitle Segments",
+                segEditableHint: "Double-click to inline edit",
+                ad1Tag: "Sponsorship / Ad Placement",
+                ad1Content: "Recommended video editor plugins & creator workflow tooling",
+                ad2Desc: "Batch transcription & bilingual subtitle workflows",
+                step1Label: "Step 1/2: Model Weight Sync",
+                step2Label: "Step 2/2: WebGPU Inference Active",
+                modalTitle: "Uninstall Local Model Weights",
+                modalDesc: "Locally cached model size: ",
+                modalCancel: "Cancel",
+                modalConfirm: "Confirm Removal",
+                faqs: [
+                    {
+                        q: "First-run Caching & Storage",
+                        a: "Initial execution caches selected Whisper ONNX weights locally (~240MB-560MB). Subsequent transcriptions load directly from local disk with 0 download wait. Storage can be reclaimed at any time via the header."
+                    },
+                    {
+                        q: "Script Normalization",
+                        a: "Equipped with OpenCC lexical engine and prompt steering to ensure standard simplified output, preventing traditional script leakage."
+                    },
+                    {
+                        q: "NLE Compatibility",
+                        a: "Exported .SRT files follow strict RFC subtitle specifications, immediately compatible with Adobe Premiere Pro, Final Cut Pro, CapCut, and DaVinci Resolve."
+                    },
+                    {
+                        q: "Data Privacy & Sandboxing",
+                        a: "All audio parsing and neural tensor computation execute strictly within your local WebGPU sandbox. Your media files are never uploaded to any remote server."
+                    }
+                ],
+                copyright: "SubExtract Engine · WebGPU Client-side Inference"
+            }
+        };
+
+        // DOM elements
+        const langZhBtn = document.getElementById('langZhBtn');
+        const langEnBtn = document.getElementById('langEnBtn');
+        const heroTitle = document.getElementById('heroTitle');
+        const heroSubtitle = document.getElementById('heroSubtitle');
+        const dropTitle = document.getElementById('dropTitle');
+        const dropSubtitle = document.getElementById('dropSubtitle');
+        const labelModel = document.getElementById('labelModel');
+        const labelLang = document.getElementById('labelLang');
+        const labelDevice = document.getElementById('labelDevice');
+        const startBtn = document.getElementById('startBtn');
+        const startBtnText = document.getElementById('startBtnText');
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const fileInfo = document.getElementById('fileInfo');
+        const modelSelect = document.getElementById('modelSelect');
+        const langSelect = document.getElementById('langSelect');
+        const deviceSelect = document.getElementById('deviceSelect');
+        const cleanCacheBtn = document.getElementById('cleanCacheBtn');
+        const cleanCacheText = document.getElementById('cleanCacheText');
+        const uninstallModal = document.getElementById('uninstallModal');
+        const modalTitle = document.getElementById('modalTitle');
+        const modalDesc = document.getElementById('modalDesc');
+        const modalCacheSize = document.getElementById('modalCacheSize');
+        const modalCancelBtn = document.getElementById('modalCancelBtn');
+        const modalConfirmBtn = document.getElementById('modalConfirmBtn');
+        const modalConfirmText = document.getElementById('modalConfirmText');
+        const progressSection = document.getElementById('progressSection');
+        const progressBar = document.getElementById('progressBar');
+        const percentText = document.getElementById('percentText');
+        const statusMessage = document.getElementById('statusMessage');
+        const subStageFile = document.getElementById('subStageFile');
+        const subStageStatus = document.getElementById('subStageStatus');
+        const resultSection = document.getElementById('resultSection');
+        const resultTitle = document.getElementById('resultTitle');
+        const speedBadge = document.getElementById('speedBadge');
+        const btnExportSrt = document.getElementById('btnExportSrt');
+        const btnCopyAll = document.getElementById('btnCopyAll');
+        const videoPlayer = document.getElementById('videoPlayer');
+        const subtitlesList = document.getElementById('subtitlesList');
+        const segmentCount = document.getElementById('segmentCount');
+        const previewTrackDesc = document.getElementById('previewTrackDesc');
+        const segTitleText = document.getElementById('segTitleText');
+        const segEditableHint = document.getElementById('segEditableHint');
+        const faqHeaderTitle = document.getElementById('faqHeaderTitle');
+        const faqContainer = document.getElementById('faqContainer');
+        const footerCopyright = document.getElementById('footerCopyright');
+        const adSlot1Tag = document.getElementById('adSlot1Tag');
+        const adSlot1Content = document.getElementById('adSlot1Content');
+        const adSlot2Desc = document.getElementById('adSlot2Desc');
+        const gpuDot = document.getElementById('gpuDot');
+        const gpuText = document.getElementById('gpuText');
+
+        // Language Switcher
+        function switchLanguage(lang) {
+            currentLang = lang;
+            const d = i18n[lang];
+            document.title = d.title;
+            heroTitle.textContent = d.heroTitle;
+            heroSubtitle.textContent = d.heroSubtitle;
+            dropTitle.textContent = d.dropTitle;
+            dropSubtitle.textContent = d.dropSubtitle;
+            labelModel.textContent = d.labelModel;
+            labelLang.textContent = d.labelLang;
+            labelDevice.textContent = d.labelDevice;
+            startBtnText.textContent = d.startBtn;
+            btnExportSrt.textContent = d.btnExportSrt;
+            btnCopyAll.textContent = d.btnCopyAll;
+            previewTrackDesc.textContent = d.previewTrackDesc;
+            segTitleText.textContent = d.segTitleText;
+            segEditableHint.textContent = d.segEditableHint;
+            adSlot1Tag.textContent = d.ad1Tag;
+            adSlot1Content.textContent = d.ad1Content;
+            adSlot2Desc.textContent = d.ad2Desc;
+            footerCopyright.textContent = d.copyright;
+
+            // FAQs
+            faqContainer.innerHTML = '';
+            d.faqs.forEach(f => {
+                const box = document.createElement('div');
+                box.className = "bg-[#111315] p-3.5 rounded-lg border border-[#202327]";
+                box.innerHTML = `<h4 class="font-medium text-zinc-200 text-xs mb-1">${f.q}</h4><p class="leading-relaxed text-[11px] text-zinc-400">${f.a}</p>`;
+                faqContainer.appendChild(box);
+            });
+
+            // Segmented button styling & Internal mirror binding
+            if (lang === 'zh') {
+                langZhBtn.className = "px-2 py-0.5 rounded text-[11px] font-medium transition bg-zinc-800 text-zinc-100";
+                langEnBtn.className = "px-2 py-0.5 rounded text-[11px] font-medium transition text-zinc-400 hover:text-zinc-200";
+                currentMirror = 'china';
+                langSelect.value = "chinese";
+            } else {
+                langEnBtn.className = "px-2 py-0.5 rounded text-[11px] font-medium transition bg-zinc-800 text-zinc-100";
+                langZhBtn.className = "px-2 py-0.5 rounded text-[11px] font-medium transition text-zinc-400 hover:text-zinc-200";
+                currentMirror = 'global';
+                langSelect.value = "english";
+            }
+            updateCacheDisplay();
+        }
+
+        langZhBtn.addEventListener('click', () => switchLanguage('zh'));
+        langEnBtn.addEventListener('click', () => switchLanguage('en'));
+
+        // Check WebGPU capability
+        async function checkWebGPU() {
+            if (navigator.gpu) {
+                try {
+                    const adapter = await navigator.gpu.requestAdapter();
+                    if (adapter) {
+                        gpuDot.className = "w-1.5 h-1.5 rounded-full bg-emerald-500";
+                        gpuText.textContent = "WebGPU 加速就绪";
+                        deviceSelect.value = "webgpu";
+                        return;
+                    }
+                } catch(e) {}
+            }
+            gpuDot.className = "w-1.5 h-1.5 rounded-full bg-amber-500";
+            gpuText.textContent = "WASM CPU 模式";
+            deviceSelect.value = "wasm";
+        }
+        checkWebGPU();
+
+        // Reactive Storage Sync
+        async function updateCacheDisplay() {
+            try {
+                const res = await fetch('/api/cache-info');
+                const data = await res.json();
+                currentCacheSizeBytes = data.sizeBytes || 0;
+                const mb = (currentCacheSizeBytes / (1024 * 1024)).toFixed(1);
+                if (currentCacheSizeBytes > 0) {
+                    cleanCacheText.textContent = currentLang === 'zh' ? `已缓存: ${mb}MB` : `Cached: ${mb}MB`;
+                } else {
+                    cleanCacheText.textContent = currentLang === 'zh' ? `本地暂无缓存` : `No Cache`;
+                }
+            } catch(e) {
+                cleanCacheText.textContent = currentLang === 'zh' ? `本地存储` : `Storage`;
+            }
+        }
+        updateCacheDisplay();
+
+        cleanCacheBtn.addEventListener('click', async () => {
+            await updateCacheDisplay();
+            const mb = (currentCacheSizeBytes / (1024 * 1024)).toFixed(1);
+            modalCacheSize.textContent = `${mb} MB`;
+            const d = i18n[currentLang];
+            modalTitle.textContent = d.modalTitle;
+            modalCancelBtn.textContent = d.modalCancel;
+            modalConfirmText.textContent = d.modalConfirm;
+            uninstallModal.classList.remove('hidden');
+        });
+
+        modalCancelBtn.addEventListener('click', () => {
+            uninstallModal.classList.add('hidden');
+        });
+
+        modalConfirmBtn.addEventListener('click', async () => {
+            modalConfirmBtn.disabled = true;
+            modalConfirmText.textContent = "...";
+            try {
+                if (window.caches) {
+                    const keys = await caches.keys();
+                    for (const k of keys) await caches.delete(k);
+                }
+                await fetch('/api/clear-cache', { method: 'POST' });
+                await updateCacheDisplay();
+                uninstallModal.classList.add('hidden');
+            } catch (err) {
+                alert("Error: " + err.message);
+            } finally {
+                modalConfirmBtn.disabled = false;
+                modalConfirmText.textContent = i18n[currentLang].modalConfirm;
+            }
+        });
+
+        // File Selection Handlers
+        dropZone.addEventListener('click', () => fileInput.click());
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('border-zinc-500', 'bg-[#121417]');
+        });
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('border-zinc-500', 'bg-[#121417]');
+        });
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('border-zinc-500', 'bg-[#121417]');
+            if (e.dataTransfer.files.length > 0) handleFileChosen(e.dataTransfer.files[0]);
+        });
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) handleFileChosen(e.target.files[0]);
+        });
+
+        function handleFileChosen(file) {
+            selectedFile = file;
+            const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+            fileInfo.classList.remove('hidden');
+            fileInfo.textContent = `${file.name} (${sizeMb} MB)`;
+            startBtn.disabled = false;
+            videoPlayer.src = URL.createObjectURL(file);
+        }
+
+        // 16kHz PCM Audio Extraction
+        async function extractAudioData(file) {
+            statusMessage.textContent = currentLang === 'zh' ? "正在提取音频采样流..." : "Extracting audio stream...";
+            percentText.textContent = "10%";
+            progressBar.style.width = "10%";
+            subStageStatus.textContent = "Step 1/2";
+
+            const arrayBuffer = await file.arrayBuffer();
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const decodedAudio = await audioCtx.decodeAudioData(arrayBuffer);
+
+            statusMessage.textContent = currentLang === 'zh' ? "正在重采样为 16kHz 单声道..." : "Resampling to 16kHz mono...";
+            percentText.textContent = "25%";
+            progressBar.style.width = "25%";
+
+            const targetSampleRate = 16000;
+            const offlineCtx = new OfflineAudioContext(1, decodedAudio.duration * targetSampleRate, targetSampleRate);
+            const source = offlineCtx.createBufferSource();
+            source.buffer = decodedAudio;
+            source.connect(offlineCtx.destination);
+            source.start(0);
+
+            const renderedBuffer = await offlineCtx.startRendering();
+            return renderedBuffer.getChannelData(0);
+        }
+
+        // Monotonic Multi-File Progress Aggregator (Anti-Jitter)
+        const downloadTracker = {
+            files: {},
+            lastReportedPct: 0,
+            reset() {
+                this.files = {};
+                this.lastReportedPct = 0;
+            },
+            update(fileName, loaded, total) {
+                this.files[fileName] = { loaded, total };
+                let totalLoaded = 0;
+                let totalExpected = 0;
+                for (const k in this.files) {
+                    totalLoaded += this.files[k].loaded;
+                    totalExpected += this.files[k].total;
+                }
+                if (totalExpected === 0) return { pct: 0, loadedMB: "0", totalMB: "0" };
+                const rawPct = Math.round((totalLoaded / totalExpected) * 100);
+                this.lastReportedPct = Math.min(99, Math.max(this.lastReportedPct, rawPct));
+                return {
+                    pct: this.lastReportedPct,
+                    loadedMB: (totalLoaded / (1024 * 1024)).toFixed(1),
+                    totalMB: (totalExpected / (1024 * 1024)).toFixed(1)
+                };
+            }
+        };
+
+        // Worker Initialization
+        function initWorker() {
+            if (!worker) {
+                worker = new Worker('worker.js', { type: 'module' });
+                worker.onmessage = handleWorkerMessage;
+            }
+        }
+
+        // Start Execution
+        startBtn.addEventListener('click', async () => {
+            if (!selectedFile) return;
+
+            initWorker();
+            downloadTracker.reset();
+            startBtn.disabled = true;
+            progressSection.classList.remove('hidden');
+            resultSection.classList.add('hidden');
+            progressBar.style.width = "5%";
+            percentText.textContent = "5%";
+            statusMessage.textContent = currentLang === 'zh' ? "正在解析本地媒体文件..." : "Parsing media...";
+            subStageFile.textContent = selectedFile.name;
+
+            try {
+                audioFloat32 = await extractAudioData(selectedFile);
+
+                statusMessage.textContent = currentLang === 'zh' ? "检查并调度神经网络模型..." : "Scheduling neural weights...";
+                percentText.textContent = "30%";
+                progressBar.style.width = "30%";
+
+                worker.postMessage({
+                    type: 'transcribe',
+                    payload: {
+                        audioData: audioFloat32,
+                        modelId: modelSelect.value,
+                        language: langSelect.value,
+                        device: deviceSelect.value,
+                        mirror: currentMirror
+                    }
+                });
+            } catch (err) {
+                alert("Error: " + err.message);
+                startBtn.disabled = false;
+                progressSection.classList.add('hidden');
+            }
+        });
+
+        // Worker Event Dispatcher
+        function handleWorkerMessage(e) {
+            const { type, data } = e.data;
+
+            if (type === 'download_progress') {
+                subStageStatus.textContent = i18n[currentLang].step1Label;
+                if (data.status === 'progress' && data.total > 0) {
+                    const stats = downloadTracker.update(data.file || 'core', data.loaded, data.total);
+                    statusMessage.textContent = currentLang === 'zh' 
+                        ? `同步模型权重: ${stats.loadedMB}MB / ${stats.totalMB}MB (${stats.pct}%)` 
+                        : `Syncing weights: ${stats.loadedMB}MB / ${stats.totalMB}MB (${stats.pct}%)`;
+                    subStageFile.textContent = currentLang === 'zh' ? "声学编码与文本生成核心组件" : "Acoustic & text synthesis core";
+                    percentText.textContent = `${stats.pct}%`;
+                    progressBar.style.width = `${stats.pct}%`;
+                } else if (data.status === 'done') {
+                    statusMessage.textContent = currentLang === 'zh' ? "权重加载完毕，正在分配显卡显存..." : "Weights loaded, allocating VRAM...";
+                    updateCacheDisplay();
+                }
+            } else if (type === 'status') {
+                statusMessage.textContent = data.message;
+                if (data.phase === 'transcribing') {
+                    subStageStatus.textContent = i18n[currentLang].step2Label;
+                    subStageFile.textContent = "WebGPU Tensor Inference";
+                    percentText.textContent = "75%";
+                    progressBar.style.width = "75%";
+                    updateCacheDisplay();
+                }
+            } else if (type === 'complete') {
+                progressBar.style.width = "100%";
+                percentText.textContent = "100%";
+                statusMessage.textContent = currentLang === 'zh' ? "转写完成" : "Transcription complete";
+                subStageStatus.textContent = "Completed";
+                updateCacheDisplay();
+
+                setTimeout(() => {
+                    progressSection.classList.add('hidden');
+                    startBtn.disabled = false;
+                    renderResults(data);
+                }, 400);
+
+            } else if (type === 'error') {
+                alert("Transcription Error: " + data.message);
+                progressSection.classList.add('hidden');
+                startBtn.disabled = false;
+            }
+        }
+
+        // Time Formatting Helpers
+        function formatSeconds(sec) {
+            const m = Math.floor(sec / 60);
+            const s = Math.floor(sec % 60);
+            return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        }
+
+        function formatSrtTime(sec) {
+            const h = Math.floor(sec / 3600);
+            const m = Math.floor((sec % 3600) / 60);
+            const s = Math.floor(sec % 60);
+            const ms = Math.floor((sec % 1) * 1000);
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
+        }
+
+        function formatVttTime(sec) {
+            const h = Math.floor(sec / 3600);
+            const m = Math.floor((sec % 3600) / 60);
+            const s = Math.floor(sec % 60);
+            const ms = Math.floor((sec % 1) * 1000);
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
+        }
+
+        // Render Results (with OpenCC normalization)
+        function renderResults(res) {
+            subtitleChunks = res.chunks;
+
+            // Script Normalization (Simplified Chinese Guarantee)
+            if (window.OpenCC) {
+                try {
+                    const converter = OpenCC.Converter({ from: 'hk', to: 'cn' });
+                    subtitleChunks.forEach(c => {
+                        if (c.text) c.text = converter(c.text);
+                    });
+                } catch(e) {}
+            }
+
+            resultSection.classList.remove('hidden');
+            speedBadge.textContent = `${res.durationSec}s · ${res.deviceUsed.toUpperCase()}`;
+            segmentCount.textContent = subtitleChunks.length;
+
+            subtitlesList.innerHTML = '';
+            let vttContent = "WEBVTT\n\n";
+
+            subtitleChunks.forEach((chunk, index) => {
+                const start = chunk.timestamp[0] ?? 0;
+                const end = chunk.timestamp[1] ?? (start + 2);
+                const text = chunk.text.trim();
+
+                vttContent += `${formatVttTime(start)} --> ${formatVttTime(end)}\n${text}\n\n`;
+
+                const item = document.createElement('div');
+                item.className = "flex items-start space-x-2.5 p-2 rounded bg-[#0d0e10] hover:bg-[#16181b] border border-[#1e2024] transition cursor-pointer";
+                item.innerHTML = `
+                    <button class="text-[11px] font-mono text-zinc-400 bg-zinc-800 hover:bg-zinc-700 px-1.5 py-0.5 rounded border border-zinc-700/60 flex-shrink-0 transition" title="跳转播放">
+                        ${formatSeconds(start)}
+                    </button>
+                    <div class="flex-1 text-xs text-zinc-200 outline-none focus:bg-zinc-900 focus:p-1 focus:rounded leading-relaxed" contenteditable="true" data-index="${index}">
+                        ${text}
+                    </div>
+                `;
+
+                item.querySelector('button').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    videoPlayer.currentTime = start;
+                    videoPlayer.play();
+                });
+
+                item.querySelector('[contenteditable]').addEventListener('blur', (e) => {
+                    subtitleChunks[index].text = e.target.innerText.trim();
+                });
+
+                subtitlesList.appendChild(item);
+            });
+
+            // Video Live Track Injection
+            if (vttBlobUrl) URL.revokeObjectURL(vttBlobUrl);
+            const vttBlob = new Blob([vttContent], { type: 'text/vtt' });
+            vttBlobUrl = URL.createObjectURL(vttBlob);
+
+            while (videoPlayer.getElementsByTagName('track').length > 0) {
+                videoPlayer.removeChild(videoPlayer.getElementsByTagName('track')[0]);
+            }
+
+            const track = document.createElement('track');
+            track.kind = 'subtitles';
+            track.label = 'Subtitles';
+            track.srclang = 'zh';
+            track.src = vttBlobUrl;
+            track.default = true;
+            videoPlayer.appendChild(track);
+        }
+
+        // Export Actions
+        document.getElementById('downloadSrtBtn').addEventListener('click', () => {
+            if (!subtitleChunks.length) return;
+            let srt = '';
+            subtitleChunks.forEach((c, idx) => {
+                const s = c.timestamp[0] ?? 0;
+                const e = c.timestamp[1] ?? (s + 2);
+                srt += `${idx + 1}\n${formatSrtTime(s)} --> ${formatSrtTime(e)}\n${c.text.trim()}\n\n`;
+            });
+            downloadFile(srt, `${selectedFile.name.replace(/\.[^/.]+$/, "")}.srt`, 'text/plain');
+        });
+
+        document.getElementById('downloadVttBtn').addEventListener('click', () => {
+            if (!subtitleChunks.length) return;
+            let vtt = 'WEBVTT\n\n';
+            subtitleChunks.forEach((c) => {
+                const s = c.timestamp[0] ?? 0;
+                const e = c.timestamp[1] ?? (s + 2);
+                vtt += `${formatVttTime(s)} --> ${formatVttTime(e)}\n${c.text.trim()}\n\n`;
+            });
+            downloadFile(vtt, `${selectedFile.name.replace(/\.[^/.]+$/, "")}.vtt`, 'text/vtt');
+        });
+
+        document.getElementById('downloadTxtBtn').addEventListener('click', () => {
+            if (!subtitleChunks.length) return;
+            const txt = subtitleChunks.map(c => c.text.trim()).join('\n');
+            downloadFile(txt, `${selectedFile.name.replace(/\.[^/.]+$/, "")}.txt`, 'text/plain');
+        });
+
+        document.getElementById('copyAllBtn').addEventListener('click', (e) => {
+            if (!subtitleChunks.length) return;
+            const txt = subtitleChunks.map(c => c.text.trim()).join('\n');
+            navigator.clipboard.writeText(txt);
+            const orig = e.currentTarget.innerHTML;
+            e.currentTarget.innerHTML = `<i class="fa-solid fa-check text-xs text-emerald-400"></i>`;
+            setTimeout(() => e.currentTarget.innerHTML = orig, 1200);
+        });
+
+        function downloadFile(content, fileName, mimeType) {
+            const blob = new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        // Initialize default view
+        switchLanguage('zh');
+    </script>
+</body>
+</html>

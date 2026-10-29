@@ -1,0 +1,1498 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SubExtract — Local WebGPU Subtitle Studio</title>
+    <!-- Inter Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- OpenCC JS for Simplified Chinese Normalization -->
+    <script src="https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.js"></script>
+    <style>
+        /* taste-skill: True-black Flat App Tokens */
+        :root {
+            --ground: #000000;
+            --surface: #0e0e10;
+            --raised: #18181b;
+            --border: #222226;
+            --rule: #1a1a1d;
+            --control: #1a1a1e;
+            --control-border: #2d2d32;
+            --control-hover: #26262b;
+            --text: #f4f4f6;
+            --muted: #a0a0a8;
+            --faint: #6c6c74;
+            --accent: #c6f24e; /* Lime data hue, restricted strictly to data/metrics under 3% */
+            --accent-soft: rgba(198, 242, 78, 0.12);
+            --primary: #ffffff;
+            --primary-ink: #000000;
+            --negative: #e5484d;
+            --warning: #e5a93b;
+            
+            --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+            
+            --fs-title: 20px;
+            --fs-section: 15px;
+            --fs-kpi: 22px;
+            --fs-body: 13px;
+            --fs-small: 11px;
+            
+            --radius-card: 12px;
+            --radius-nested: 8px;
+            --radius-control: 6px;
+            --radius-pill: 999px;
+            
+            --control-height: 34px;
+        }
+
+        /* Reset & Base */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+        body {
+            background-color: var(--ground);
+            color: var(--text);
+            font-family: var(--font);
+            font-size: var(--fs-body);
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        button, input, select, textarea {
+            font: inherit;
+            color: inherit;
+        }
+
+        .num, .tabular {
+            font-variant-numeric: tabular-nums;
+            font-feature-settings: "tnum";
+        }
+
+        /* Top Bar Shell */
+        .top-bar {
+            height: 48px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+            background: var(--ground);
+            position: sticky;
+            top: 0;
+            z-index: 40;
+        }
+
+        .brand-cluster {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .brand-logo {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            text-decoration: none;
+            color: var(--text);
+            font-weight: 600;
+            font-size: 14px;
+            letter-spacing: -0.01em;
+        }
+
+        .brand-mark {
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--raised);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+        }
+
+        .brand-mark svg {
+            width: 12px;
+            height: 12px;
+            fill: none;
+            stroke: var(--accent);
+            stroke-width: 2;
+        }
+
+        .meta-pills {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .meta-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: var(--fs-small);
+            color: var(--muted);
+            background: var(--surface);
+            border: 1px solid var(--border);
+            padding: 3px 8px;
+            border-radius: var(--radius-pill);
+            height: 24px;
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--accent);
+            flex-shrink: 0;
+        }
+
+        .status-dot.cpu {
+            background: var(--warning);
+        }
+
+        .actions-cluster {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* Segmented / Ghost Controls */
+        .btn-ghost {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--muted);
+            height: 28px;
+            padding: 0 10px;
+            border-radius: var(--radius-control);
+            font-size: var(--fs-small);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: color 150ms ease, border-color 150ms ease, background 150ms ease;
+        }
+
+        .btn-ghost:hover {
+            color: var(--text);
+            background: var(--surface);
+            border-color: var(--control-border);
+        }
+
+        .lang-switch {
+            display: flex;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-control);
+            padding: 2px;
+        }
+
+        .lang-btn {
+            background: transparent;
+            border: none;
+            color: var(--faint);
+            font-size: var(--fs-small);
+            padding: 2px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: color 150ms ease, background 150ms ease;
+        }
+
+        .lang-btn.active {
+            background: var(--raised);
+            color: var(--text);
+            font-weight: 500;
+        }
+
+        /* Main Workspace */
+        .workspace {
+            max-width: 1080px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 28px 24px 60px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* Section Cards - Flat Elevation by Lightness */
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-card);
+            padding: 20px;
+            position: relative;
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+
+        .card-title {
+            font-size: var(--fs-section);
+            font-weight: 600;
+            letter-spacing: -0.01em;
+            color: var(--text);
+        }
+
+        .card-caption {
+            font-size: var(--fs-small);
+            color: var(--faint);
+        }
+
+        /* File Ingest Zone */
+        .dropzone {
+            border: 1px dashed var(--control-border);
+            background: var(--ground);
+            border-radius: var(--radius-nested);
+            padding: 28px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color 150ms ease, background 150ms ease;
+        }
+
+        .dropzone:hover {
+            border-color: var(--muted);
+            background: #050507;
+        }
+
+        .dropzone-inner {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .dropzone-label {
+            font-weight: 500;
+            color: var(--text);
+            font-size: var(--fs-body);
+        }
+
+        .dropzone-sub {
+            color: var(--faint);
+            font-size: var(--fs-small);
+        }
+
+        .file-loaded-strip {
+            display: none;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--raised);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-nested);
+            padding: 10px 14px;
+            margin-top: 12px;
+            font-size: var(--fs-small);
+        }
+
+        .file-loaded-strip.visible {
+            display: flex;
+        }
+
+        /* Parameters Configuration Bar */
+        .param-bar {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+            margin-top: 14px;
+        }
+
+        @media (max-width: 640px) {
+            .param-bar {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .param-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .param-label {
+            font-size: var(--fs-small);
+            color: var(--muted);
+            font-weight: 500;
+        }
+
+        .control-select {
+            height: var(--control-height);
+            background: var(--ground);
+            border: 1px solid var(--control-border);
+            border-radius: var(--radius-control);
+            color: var(--text);
+            padding: 0 10px;
+            font-size: var(--fs-body);
+            outline: none;
+            cursor: pointer;
+            transition: border-color 150ms ease;
+        }
+
+        .control-select:focus {
+            border-color: var(--muted);
+        }
+
+        /* Primary Control: The Move (White Pill Inversion) */
+        .btn-primary {
+            height: 38px;
+            background: var(--primary);
+            color: var(--primary-ink);
+            border: none;
+            border-radius: var(--radius-pill);
+            font-weight: 500;
+            font-size: var(--fs-body);
+            padding: 0 20px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            width: 100%;
+            margin-top: 16px;
+            transition: opacity 150ms ease, transform 100ms ease;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            opacity: 0.92;
+        }
+
+        .btn-primary:active:not(:disabled) {
+            transform: scale(0.995);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+        }
+
+        /* Progress Module */
+        .progress-block {
+            display: none;
+            background: var(--ground);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-nested);
+            padding: 14px 16px;
+            margin-top: 14px;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .progress-block.visible {
+            display: flex;
+        }
+
+        .progress-meta {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: var(--fs-small);
+        }
+
+        .progress-state {
+            color: var(--text);
+            font-weight: 500;
+        }
+
+        .progress-val {
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        .progress-track {
+            height: 4px;
+            background: var(--raised);
+            border-radius: var(--radius-pill);
+            overflow: hidden;
+            width: 100%;
+        }
+
+        .progress-fill {
+            height: 100%;
+            width: 0%;
+            background: var(--accent);
+            transition: width 200ms ease;
+        }
+
+        .progress-sub {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: var(--fs-small);
+            color: var(--faint);
+        }
+
+        /* Results Studio */
+        .result-studio {
+            display: none;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .result-studio.visible {
+            display: flex;
+        }
+
+        .toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .stat-cluster {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .stat-kpi {
+            display: inline-flex;
+            align-items: baseline;
+            gap: 6px;
+        }
+
+        .stat-kpi-val {
+            font-size: var(--fs-section);
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .stat-kpi-lbl {
+            font-size: var(--fs-small);
+            color: var(--faint);
+        }
+
+        .export-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .btn-action {
+            height: 30px;
+            background: var(--raised);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: var(--radius-control);
+            font-size: var(--fs-small);
+            font-weight: 500;
+            padding: 0 10px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: background 150ms ease, border-color 150ms ease;
+        }
+
+        .btn-action:hover {
+            background: var(--control-hover);
+            border-color: var(--control-border);
+        }
+
+        .btn-action-primary {
+            background: var(--text);
+            color: var(--ground);
+            border: none;
+        }
+
+        .btn-action-primary:hover {
+            background: #e4e4e7;
+        }
+
+        /* Studio Grid: Media Player + Timeline Editor */
+        .studio-grid {
+            display: grid;
+            grid-template-columns: 5fr 7fr;
+            gap: 16px;
+        }
+
+        @media (max-width: 860px) {
+            .studio-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .player-pane {
+            background: var(--ground);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-nested);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .video-box {
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            background: #000000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .player-info-strip {
+            padding: 8px 12px;
+            display: flex;
+            justify-content: space-between;
+            font-size: var(--fs-small);
+            color: var(--faint);
+            border-top: 1px solid var(--rule);
+        }
+
+        /* Subtitle Timeline Rows */
+        .timeline-pane {
+            background: var(--ground);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-nested);
+            display: flex;
+            flex-direction: column;
+            height: 440px;
+            overflow: hidden;
+        }
+
+        .timeline-header {
+            padding: 10px 14px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: var(--fs-small);
+            color: var(--muted);
+        }
+
+        .timeline-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 6px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .sub-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 8px 10px;
+            border-radius: var(--radius-control);
+            border: 1px solid transparent;
+            transition: background 120ms ease, border-color 120ms ease;
+        }
+
+        .sub-row:hover {
+            background: var(--raised);
+            border-color: var(--rule);
+        }
+
+        .sub-time {
+            font-size: var(--fs-small);
+            color: var(--muted);
+            background: var(--surface);
+            border: 1px solid var(--border);
+            padding: 2px 6px;
+            border-radius: 4px;
+            cursor: pointer;
+            flex-shrink: 0;
+            line-height: 1.4;
+            transition: color 120ms ease, border-color 120ms ease;
+        }
+
+        .sub-time:hover {
+            color: var(--accent);
+            border-color: var(--control-border);
+        }
+
+        .sub-text {
+            flex: 1;
+            font-size: var(--fs-body);
+            color: var(--text);
+            line-height: 1.5;
+            outline: none;
+            padding: 1px 3px;
+            border-radius: 3px;
+            word-break: break-word;
+        }
+
+        .sub-text:focus {
+            background: var(--surface);
+            outline: 1px solid var(--control-border);
+        }
+
+        /* Specification Strip */
+        .specs-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+            margin-top: 10px;
+        }
+
+        @media (max-width: 640px) {
+            .specs-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .spec-item {
+            background: var(--ground);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-nested);
+            padding: 14px;
+        }
+
+        .spec-title {
+            font-size: var(--fs-body);
+            font-weight: 500;
+            color: var(--text);
+            margin-bottom: 4px;
+        }
+
+        .spec-desc {
+            font-size: var(--fs-small);
+            color: var(--faint);
+            line-height: 1.5;
+        }
+
+        /* Modal: Flat Elevation Sheet */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.78);
+            z-index: 50;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+
+        .modal-overlay.visible {
+            display: flex;
+        }
+
+        .modal-box {
+            background: #101013;
+            border: 1px solid var(--control-border);
+            border-radius: var(--radius-card);
+            max-width: 400px;
+            width: 100%;
+            padding: 22px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .modal-title {
+            font-size: var(--fs-section);
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .modal-body {
+            font-size: var(--fs-body);
+            color: var(--muted);
+            line-height: 1.5;
+        }
+
+        .modal-actions {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 8px;
+            margin-top: 4px;
+        }
+
+        .btn-danger {
+            background: var(--negative);
+            color: #ffffff;
+            border: none;
+            border-radius: var(--radius-control);
+            font-size: var(--fs-small);
+            font-weight: 500;
+            height: 32px;
+            padding: 0 14px;
+            cursor: pointer;
+        }
+
+        /* Scrollbars */
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--control-border); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+    </style>
+</head>
+<body>
+
+    <!-- Top Navigation Shell -->
+    <header class="top-bar">
+        <div class="brand-cluster">
+            <a href="#" class="brand-logo">
+                <span class="brand-mark">
+                    <svg viewBox="0 0 24 24"><path d="M3 10v4M7 6v12M11 3v18M15 8v8M19 11v2"/></svg>
+                </span>
+                <span>SubExtract</span>
+            </a>
+            <div class="meta-pills">
+                <div class="meta-pill" id="gpuPill">
+                    <span class="status-dot" id="gpuDot"></span>
+                    <span id="gpuText">WebGPU 加速就绪</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="actions-cluster">
+            <button class="btn-ghost" id="cacheBtn" title="查看并管理本地模型存储">
+                <span id="cacheText">存储检查中...</span>
+            </button>
+            <div class="lang-switch">
+                <button class="lang-btn active" id="btnLangZh">中文</button>
+                <button class="lang-btn" id="btnLangEn">EN</button>
+            </div>
+        </div>
+    </header>
+
+    <!-- App Body Workspace -->
+    <main class="workspace">
+
+        <!-- File Ingest & Configuration Card -->
+        <section class="card">
+            <div class="card-header">
+                <div>
+                    <h1 class="card-title" id="txtCardTitle">音视频字幕提取工坊</h1>
+                    <p class="card-caption" id="txtCardCaption">纯本地浏览器张量推断，无需上传媒体文件，零服务器成本。</p>
+                </div>
+            </div>
+
+            <!-- Ingest Drop Area -->
+            <div class="dropzone" id="dropzone">
+                <input type="file" id="fileInput" style="display:none;" accept="video/*,audio/*,.mp4,.mkv,.mov,.webm,.mp3,.wav,.m4a">
+                <div class="dropzone-inner">
+                    <p class="dropzone-label" id="txtDropLabel">拖入视频或音频文件，或点击选择</p>
+                    <p class="dropzone-sub">支持 MP4, MOV, WebM, MP3, WAV, M4A 常见格式</p>
+                </div>
+            </div>
+
+            <!-- Selected File Metadata Strip -->
+            <div class="file-loaded-strip" id="fileLoadedStrip">
+                <span id="lblFileName">sample.mp4</span>
+                <span class="tabular" id="lblFileSize">0.0 MB</span>
+            </div>
+
+            <!-- Parameters -->
+            <div class="param-bar">
+                <div class="param-group">
+                    <label class="param-label" id="lblModel">模型精度</label>
+                    <select class="control-select" id="modelSelect">
+                        <option value="onnx-community/whisper-small" selected>Whisper Small（推荐 · 高准确率）</option>
+                        <option value="onnx-community/whisper-base">Whisper Base（轻量 · 极速）</option>
+                    </select>
+                </div>
+
+                <div class="param-group">
+                    <label class="param-label" id="lblLang">源语言</label>
+                    <select class="control-select" id="langSelect">
+                        <option value="chinese" selected>中文（普通话 / 粤语）</option>
+                        <option value="english">英语（English）</option>
+                        <option value="japanese">日语（日本語）</option>
+                        <option value="auto">自动检测（Auto Detect）</option>
+                        <option value="korean">韩语（Korean）</option>
+                    </select>
+                </div>
+
+                <div class="param-group">
+                    <label class="param-label" id="lblDevice">执行设备</label>
+                    <select class="control-select" id="deviceSelect">
+                        <option value="webgpu" selected>WebGPU（本地显卡硬件加速）</option>
+                        <option value="wasm">CPU WASM（标准指令集模式）</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Execution Button: True Inversion Move -->
+            <button class="btn-primary" id="startBtn" disabled>
+                <span id="txtStartBtn">开始提取字幕</span>
+            </button>
+
+            <!-- Dynamic Execution Progress Block -->
+            <div class="progress-block" id="progressBlock">
+                <div class="progress-meta">
+                    <span class="progress-state" id="txtProgressState">准备中...</span>
+                    <span class="progress-val tabular" id="txtProgressPct">0%</span>
+                </div>
+                <div class="progress-track">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="progress-sub">
+                    <span id="txtSubStage">正在初始化</span>
+                    <span class="tabular" id="txtSubProgress">Step 1/2</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Result Workspace Studio -->
+        <section class="card result-studio" id="resultStudio">
+            <!-- Toolbar -->
+            <div class="toolbar">
+                <div class="stat-cluster">
+                    <div class="stat-kpi">
+                        <span class="stat-kpi-val tabular" id="txtTotalSegments">0</span>
+                        <span class="stat-kpi-lbl" id="lblSegments">句字幕</span>
+                    </div>
+                    <span style="color:var(--border);">|</span>
+                    <div class="stat-kpi">
+                        <span class="stat-kpi-val tabular" id="txtSpeedSec">0.0s</span>
+                        <span class="stat-kpi-lbl" id="lblDuration">耗时</span>
+                    </div>
+                </div>
+
+                <div class="export-group">
+                    <button class="btn-action btn-action-primary" id="btnExportSrt">导出 .SRT</button>
+                    <button class="btn-action" id="btnExportVtt">导出 .VTT</button>
+                    <button class="btn-action" id="btnExportTxt">导出 .TXT</button>
+                    <button class="btn-action" id="btnCopyAll">复制全文</button>
+                </div>
+            </div>
+
+            <!-- Two Column Studio Grid -->
+            <div class="studio-grid">
+                <!-- Video / Audio Player -->
+                <div class="player-pane">
+                    <div class="video-box">
+                        <video id="videoPlayer" controls></video>
+                    </div>
+                    <div class="player-info-strip">
+                        <span>字幕实时对齐预览</span>
+                        <span class="tabular" id="playerDuration">00:00</span>
+                    </div>
+                </div>
+
+                <!-- Subtitle Timeline List -->
+                <div class="timeline-pane">
+                    <div class="timeline-header">
+                        <span id="txtTimelineTitle">时间轴字幕条目</span>
+                        <span id="txtEditHint">点击文本可原地校对</span>
+                    </div>
+                    <div class="timeline-list" id="timelineList">
+                        <!-- Items rendered dynamically -->
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Technical Specification & Guidelines -->
+        <section class="card">
+            <div class="card-header">
+                <h2 class="card-title" id="txtSpecsTitle">技术规范与设计说明</h2>
+            </div>
+            <div class="specs-grid" id="specsContainer">
+                <div class="spec-item">
+                    <div class="spec-title" id="spec1Title">端到端本地安全沙箱</div>
+                    <div class="spec-desc" id="spec1Desc">媒体解码与神经网络推理完全运行在浏览器 WebGPU / Web Worker 沙箱中，无任何音视频数据流向远程服务器。</div>
+                </div>
+                <div class="spec-item">
+                    <div class="spec-title" id="spec2Title">汉字规范化与简繁对齐</div>
+                    <div class="spec-desc" id="spec2Desc">内置词汇级 OpenCC 转换模块与 Prompt 引导，杜绝原生 Whisper 模型的繁体偏置，输出标准规范简体中文。</div>
+                </div>
+                <div class="spec-item">
+                    <div class="spec-title" id="spec3Title">本地磁盘持久化缓存</div>
+                    <div class="spec-desc" id="spec3Desc">首次下载的模型权重会自动持久化保存在本地磁盘（约 240MB~560MB），后续转录秒级唤醒，可随时一键清除。</div>
+                </div>
+                <div class="spec-item">
+                    <div class="spec-title" id="spec4Title">专业剪辑软件兼容</div>
+                    <div class="spec-desc" id="spec4Desc">导出的 .SRT 与 .VTT 字幕严格遵循标准时间戳规范，可直接无缝导入剪映专业版、Premiere Pro 与 Final Cut Pro。</div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Cache Management Modal -->
+    <div class="modal-overlay" id="cacheModal">
+        <div class="modal-box">
+            <h3 class="modal-title" id="txtModalTitle">本地模型缓存管理</h3>
+            <p class="modal-body" id="txtModalDesc">
+                当前本地已持久化保存模型权重：<span class="tabular" id="txtModalSize" style="color:var(--text);font-weight:600;">0 MB</span>。<br>
+                清除后将释放磁盘空间，下次转录时需重新下载。
+            </p>
+            <div class="modal-actions">
+                <button class="btn-ghost" id="btnModalCancel">取消</button>
+                <button class="btn-danger" id="btnModalConfirm">清除缓存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Script -->
+    <script>
+        // State
+        let currentLang = 'zh';
+        let currentMirror = 'china';
+        let selectedFile = null;
+        let audioFloat32 = null;
+        let subtitleChunks = [];
+        let worker = null;
+        let vttBlobUrl = null;
+        let currentCacheSizeBytes = 0;
+
+        // Auto clean any corrupted browser CacheStorage partition on boot
+        if (window.caches) {
+            caches.keys().then(keys => {
+                for (const k of keys) caches.delete(k);
+            }).catch(() => {});
+        }
+
+        // Clean, Anti-AI Translations
+        const i18n = {
+            zh: {
+                title: "SubExtract — 本地 WebGPU 音视频字幕工作台",
+                cardTitle: "音视频字幕提取工坊",
+                cardCaption: "纯本地浏览器张量推断，无需上传媒体文件，零服务器成本。",
+                dropLabel: "拖入视频或音频文件，或点击选择",
+                dropSub: "支持 MP4, MOV, WebM, MP3, WAV, M4A 常见格式",
+                model: "模型精度",
+                lang: "源语言",
+                device: "执行设备",
+                start: "开始提取字幕",
+                progressPreparing: "准备中...",
+                segments: "句字幕",
+                duration: "耗时",
+                timeline: "时间轴字幕条目",
+                editHint: "点击文本可原地校对",
+                exportSrt: "导出 .SRT",
+                exportVtt: "导出 .VTT",
+                exportTxt: "导出 .TXT",
+                copyAll: "复制全文",
+                copied: "已复制",
+                modalTitle: "本地模型缓存管理",
+                modalDesc: "当前本地已持久化保存模型权重：",
+                modalCancel: "取消",
+                modalConfirm: "清除缓存",
+                specsTitle: "技术规范与设计说明",
+                specs: [
+                    { t: "端到端本地安全沙箱", d: "媒体解码与神经网络推理完全运行在浏览器 WebGPU / Web Worker 沙箱中，无任何音视频数据流向远程服务器。" },
+                    { t: "汉字规范化与简繁对齐", d: "内置词汇级 OpenCC 转换模块与 Prompt 引导，杜绝原生 Whisper 模型的繁体偏置，输出标准规范简体中文。" },
+                    { t: "本地磁盘持久化缓存", d: "首次下载的模型权重会自动持久化保存在本地磁盘（约 240MB~560MB），后续转录秒级唤醒，可随时一键清除。" },
+                    { t: "专业剪辑软件兼容", d: "导出的 .SRT 与 .VTT 字幕严格遵循标准时间戳规范，可直接无缝导入剪映专业版、Premiere Pro 与 Final Cut Pro。" }
+                ]
+            },
+            en: {
+                title: "SubExtract — Local WebGPU Subtitle Studio",
+                cardTitle: "Subtitle Extraction Studio",
+                cardCaption: "Client-side WebGPU neural inference. No uploads, zero server cost.",
+                dropLabel: "Drop media file here, or click to browse",
+                dropSub: "Supports MP4, MOV, WebM, MP3, WAV, M4A containers",
+                model: "Model Precision",
+                lang: "Source Language",
+                device: "Compute Device",
+                start: "Extract Subtitles",
+                progressPreparing: "Preparing...",
+                segments: "segments",
+                duration: "elapsed",
+                timeline: "Subtitle Timeline",
+                editHint: "Click text to edit inline",
+                exportSrt: "Export .SRT",
+                exportVtt: "Export .VTT",
+                exportTxt: "Export .TXT",
+                copyAll: "Copy All",
+                copied: "Copied",
+                modalTitle: "Local Model Storage",
+                modalDesc: "Locally cached neural parameters: ",
+                modalCancel: "Cancel",
+                modalConfirm: "Purge Cache",
+                specsTitle: "Specifications & Architecture",
+                specs: [
+                    { t: "Client-Side Sandbox", d: "Audio extraction and neural tensor compute run strictly inside local WebGPU sandboxes. Media bytes never leave your device." },
+                    { t: "Script Normalization", d: "Integrated OpenCC engine and prompt constraints eliminate traditional Chinese dialect bias, ensuring standard output." },
+                    { t: "Persistent Disk Cache", d: "Weights are cached locally on disk (~240MB-560MB). Subsequent transcriptions start instantaneously with 0 network latency." },
+                    { t: "NLE Suite Compatibility", d: "Exported .SRT and .VTT files strictly adhere to standard timecode specs, ready for Final Cut Pro, Premiere Pro, and CapCut." }
+                ]
+            }
+        };
+
+        // DOM Handles
+        const dropzone = document.getElementById('dropzone');
+        const fileInput = document.getElementById('fileInput');
+        const fileLoadedStrip = document.getElementById('fileLoadedStrip');
+        const lblFileName = document.getElementById('lblFileName');
+        const lblFileSize = document.getElementById('lblFileSize');
+        const startBtn = document.getElementById('startBtn');
+        const modelSelect = document.getElementById('modelSelect');
+        const langSelect = document.getElementById('langSelect');
+        const deviceSelect = document.getElementById('deviceSelect');
+        const progressBlock = document.getElementById('progressBlock');
+        const txtProgressState = document.getElementById('txtProgressState');
+        const txtProgressPct = document.getElementById('txtProgressPct');
+        const progressFill = document.getElementById('progressFill');
+        const txtSubStage = document.getElementById('txtSubStage');
+        const txtSubProgress = document.getElementById('txtSubProgress');
+        const resultStudio = document.getElementById('resultStudio');
+        const txtTotalSegments = document.getElementById('txtTotalSegments');
+        const txtSpeedSec = document.getElementById('txtSpeedSec');
+        const timelineList = document.getElementById('timelineList');
+        const videoPlayer = document.getElementById('videoPlayer');
+        const playerDuration = document.getElementById('playerDuration');
+        const gpuDot = document.getElementById('gpuDot');
+        const gpuText = document.getElementById('gpuText');
+        const cacheBtn = document.getElementById('cacheBtn');
+        const cacheText = document.getElementById('cacheText');
+        const cacheModal = document.getElementById('cacheModal');
+        const txtModalSize = document.getElementById('txtModalSize');
+        const btnModalCancel = document.getElementById('btnModalCancel');
+        const btnModalConfirm = document.getElementById('btnModalConfirm');
+        const btnLangZh = document.getElementById('btnLangZh');
+        const btnLangEn = document.getElementById('btnLangEn');
+
+        // Apply Language
+        function setLanguage(lang) {
+            currentLang = lang;
+            const t = i18n[lang];
+            document.title = t.title;
+            document.getElementById('txtCardTitle').textContent = t.cardTitle;
+            document.getElementById('txtCardCaption').textContent = t.cardCaption;
+            document.getElementById('txtDropLabel').textContent = t.dropLabel;
+            document.getElementById('lblModel').textContent = t.model;
+            document.getElementById('lblLang').textContent = t.lang;
+            document.getElementById('lblDevice').textContent = t.device;
+            document.getElementById('txtStartBtn').textContent = t.start;
+            document.getElementById('lblSegments').textContent = t.segments;
+            document.getElementById('lblDuration').textContent = t.duration;
+            document.getElementById('txtTimelineTitle').textContent = t.timeline;
+            document.getElementById('txtEditHint').textContent = t.editHint;
+            document.getElementById('btnExportSrt').textContent = t.exportSrt;
+            document.getElementById('btnExportVtt').textContent = t.exportVtt;
+            document.getElementById('btnExportTxt').textContent = t.exportTxt;
+            document.getElementById('btnCopyAll').textContent = t.copyAll;
+            document.getElementById('txtModalTitle').textContent = t.modalTitle;
+            document.getElementById('btnModalCancel').textContent = t.modalCancel;
+            document.getElementById('btnModalConfirm').textContent = t.modalConfirm;
+            document.getElementById('txtSpecsTitle').textContent = t.specsTitle;
+
+            // Render Specs
+            const specsContainer = document.getElementById('specsContainer');
+            specsContainer.innerHTML = '';
+            t.specs.forEach(s => {
+                const el = document.createElement('div');
+                el.className = 'spec-item';
+                el.innerHTML = `<div class="spec-title">${s.t}</div><div class="spec-desc">${s.d}</div>`;
+                specsContainer.appendChild(el);
+            });
+
+            if (lang === 'zh') {
+                btnLangZh.classList.add('active');
+                btnLangEn.classList.remove('active');
+                currentMirror = 'china';
+                langSelect.value = 'chinese';
+            } else {
+                btnLangEn.classList.add('active');
+                btnLangZh.classList.remove('active');
+                currentMirror = 'global';
+                langSelect.value = 'english';
+            }
+            updateCacheDisplay();
+        }
+
+        btnLangZh.addEventListener('click', () => setLanguage('zh'));
+        btnLangEn.addEventListener('click', () => setLanguage('en'));
+
+        // Hardware WebGPU Detection
+        async function checkHardware() {
+            if (navigator.gpu) {
+                try {
+                    const adapter = await navigator.gpu.requestAdapter();
+                    if (adapter) {
+                        gpuDot.className = "status-dot";
+                        gpuText.textContent = currentLang === 'zh' ? "WebGPU 加速就绪" : "WebGPU Ready";
+                        deviceSelect.value = "webgpu";
+                        return;
+                    }
+                } catch(e) {}
+            }
+            gpuDot.className = "status-dot cpu";
+            gpuText.textContent = currentLang === 'zh' ? "WASM CPU 模式" : "CPU WASM Mode";
+            deviceSelect.value = "wasm";
+        }
+        checkHardware();
+
+        // Server Cache Metrics
+        async function updateCacheDisplay() {
+            try {
+                const res = await fetch('/api/cache-info');
+                const data = await res.json();
+                currentCacheSizeBytes = data.sizeBytes || 0;
+                const mb = (currentCacheSizeBytes / (1024 * 1024)).toFixed(1);
+                if (currentCacheSizeBytes > 0) {
+                    cacheText.textContent = currentLang === 'zh' ? `模型缓存: ${mb}MB` : `Storage: ${mb}MB`;
+                } else {
+                    cacheText.textContent = currentLang === 'zh' ? `无模型缓存` : `Storage: 0MB`;
+                }
+            } catch(e) {
+                cacheText.textContent = currentLang === 'zh' ? `本地存储` : `Storage`;
+            }
+        }
+        updateCacheDisplay();
+
+        // Cache Modal Events
+        cacheBtn.addEventListener('click', async () => {
+            await updateCacheDisplay();
+            const mb = (currentCacheSizeBytes / (1024 * 1024)).toFixed(1);
+            txtModalSize.textContent = `${mb} MB`;
+            cacheModal.classList.add('visible');
+        });
+
+        btnModalCancel.addEventListener('click', () => cacheModal.classList.remove('visible'));
+
+        btnModalConfirm.addEventListener('click', async () => {
+            btnModalConfirm.disabled = true;
+            btnModalConfirm.textContent = "...";
+            try {
+                if (window.caches) {
+                    const keys = await caches.keys();
+                    for (const k of keys) await caches.delete(k);
+                }
+                await fetch('/api/clear-cache', { method: 'POST' });
+                await updateCacheDisplay();
+                cacheModal.classList.remove('visible');
+            } catch (err) {
+                alert("Error: " + err.message);
+            } finally {
+                btnModalConfirm.disabled = false;
+                btnModalConfirm.textContent = i18n[currentLang].modalConfirm;
+            }
+        });
+
+        // File Selection Handlers
+        dropzone.addEventListener('click', () => fileInput.click());
+        dropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropzone.style.borderColor = 'var(--accent)';
+        });
+        dropzone.addEventListener('dragleave', () => {
+            dropzone.style.borderColor = 'var(--control-border)';
+        });
+        dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropzone.style.borderColor = 'var(--control-border)';
+            if (e.dataTransfer.files.length > 0) handleFileChosen(e.dataTransfer.files[0]);
+        });
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) handleFileChosen(e.target.files[0]);
+        });
+
+        function handleFileChosen(file) {
+            selectedFile = file;
+            const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+            lblFileName.textContent = file.name;
+            lblFileSize.textContent = `${sizeMb} MB`;
+            fileLoadedStrip.classList.add('visible');
+            startBtn.disabled = false;
+            videoPlayer.src = URL.createObjectURL(file);
+        }
+
+        // 16kHz Audio Resampling
+        async function extractAudioData(file) {
+            txtProgressState.textContent = currentLang === 'zh' ? "提取音频流..." : "Extracting audio...";
+            txtProgressPct.textContent = "12%";
+            progressFill.style.width = "12%";
+            txtSubProgress.textContent = "Step 1/2";
+
+            const arrayBuffer = await file.arrayBuffer();
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const decodedAudio = await audioCtx.decodeAudioData(arrayBuffer);
+
+            txtProgressState.textContent = currentLang === 'zh' ? "重采样为 16kHz 单声道..." : "Resampling 16kHz...";
+            txtProgressPct.textContent = "25%";
+            progressFill.style.width = "25%";
+
+            const targetSampleRate = 16000;
+            const offlineCtx = new OfflineAudioContext(1, decodedAudio.duration * targetSampleRate, targetSampleRate);
+            const source = offlineCtx.createBufferSource();
+            source.buffer = decodedAudio;
+            source.connect(offlineCtx.destination);
+            source.start(0);
+
+            const renderedBuffer = await offlineCtx.startRendering();
+            return renderedBuffer.getChannelData(0);
+        }
+
+        // Monotonic Multi-File Progress Tracker
+        const downloadTracker = {
+            files: {},
+            lastReportedPct: 0,
+            reset() {
+                this.files = {};
+                this.lastReportedPct = 0;
+            },
+            update(fileName, loaded, total) {
+                this.files[fileName] = { loaded, total };
+                let totalLoaded = 0;
+                let totalExpected = 0;
+                for (const k in this.files) {
+                    totalLoaded += this.files[k].loaded;
+                    totalExpected += this.files[k].total;
+                }
+                if (totalExpected === 0) return { pct: 0, loadedMB: "0", totalMB: "0" };
+                const rawPct = Math.round((totalLoaded / totalExpected) * 100);
+                this.lastReportedPct = Math.min(99, Math.max(this.lastReportedPct, rawPct));
+                return {
+                    pct: this.lastReportedPct,
+                    loadedMB: (totalLoaded / (1024 * 1024)).toFixed(1),
+                    totalMB: (totalExpected / (1024 * 1024)).toFixed(1)
+                };
+            }
+        };
+
+        // Worker Initialization
+        function initWorker() {
+            if (!worker) {
+                worker = new Worker('worker.js', { type: 'module' });
+                worker.onmessage = handleWorkerMessage;
+            }
+        }
+
+        // Start Execution
+        startBtn.addEventListener('click', async () => {
+            if (!selectedFile) return;
+
+            initWorker();
+            downloadTracker.reset();
+            startBtn.disabled = true;
+            progressBlock.classList.add('visible');
+            resultStudio.classList.remove('visible');
+            progressFill.style.width = "5%";
+            txtProgressPct.textContent = "5%";
+            txtProgressState.textContent = currentLang === 'zh' ? "解析媒体文件..." : "Parsing media...";
+            txtSubStage.textContent = selectedFile.name;
+
+            try {
+                audioFloat32 = await extractAudioData(selectedFile);
+
+                txtProgressState.textContent = currentLang === 'zh' ? "分配神经网络张量..." : "Allocating neural tensors...";
+                txtProgressPct.textContent = "30%";
+                progressFill.style.width = "30%";
+
+                worker.postMessage({
+                    type: 'transcribe',
+                    payload: {
+                        audioData: audioFloat32,
+                        modelId: modelSelect.value,
+                        language: langSelect.value,
+                        device: deviceSelect.value,
+                        mirror: currentMirror
+                    }
+                });
+            } catch (err) {
+                alert("Error: " + err.message);
+                startBtn.disabled = false;
+                progressBlock.classList.remove('visible');
+            }
+        });
+
+        // Worker Message Handler
+        function handleWorkerMessage(e) {
+            const { type, data } = e.data;
+
+            if (type === 'download_progress') {
+                txtSubProgress.textContent = "Step 1/2: 模型下载与权重同步";
+                if (data.status === 'progress' && data.total > 0) {
+                    const stats = downloadTracker.update(data.file || 'core', data.loaded, data.total);
+                    txtProgressState.textContent = currentLang === 'zh'
+                        ? `同步模型权重: ${stats.loadedMB}MB / ${stats.totalMB}MB (${stats.pct}%)`
+                        : `Syncing weights: ${stats.loadedMB}MB / ${stats.totalMB}MB (${stats.pct}%)`;
+                    txtSubStage.textContent = "Acoustic & text synthesis core";
+                    txtProgressPct.textContent = `${stats.pct}%`;
+                    progressFill.style.width = `${stats.pct}%`;
+                } else if (data.status === 'done') {
+                    txtProgressState.textContent = currentLang === 'zh' ? "权重加载完毕，分配显存..." : "Weights loaded, allocating VRAM...";
+                    updateCacheDisplay();
+                }
+            } else if (type === 'status') {
+                txtProgressState.textContent = data.message;
+                if (data.phase === 'transcribing') {
+                    txtSubProgress.textContent = "Step 2/2: WebGPU 显卡张量推理";
+                    txtSubStage.textContent = "WebGPU Tensor Transcription";
+                    txtProgressPct.textContent = "75%";
+                    progressFill.style.width = "75%";
+                    updateCacheDisplay();
+                }
+            } else if (type === 'complete') {
+                progressFill.style.width = "100%";
+                txtProgressPct.textContent = "100%";
+                txtProgressState.textContent = currentLang === 'zh' ? "转录完成" : "Complete";
+                txtSubProgress.textContent = "Done";
+                updateCacheDisplay();
+
+                setTimeout(() => {
+                    progressBlock.classList.remove('visible');
+                    startBtn.disabled = false;
+                    renderResults(data);
+                }, 350);
+
+            } else if (type === 'error') {
+                alert("Transcription Error: " + data.message);
+                progressBlock.classList.remove('visible');
+                startBtn.disabled = false;
+            }
+        }
+
+        // Time Helpers
+        function formatSeconds(sec) {
+            const m = Math.floor(sec / 60);
+            const s = Math.floor(sec % 60);
+            return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        }
+
+        function formatSrtTime(sec) {
+            const h = Math.floor(sec / 3600);
+            const m = Math.floor((sec % 3600) / 60);
+            const s = Math.floor(sec % 60);
+            const ms = Math.floor((sec % 1) * 1000);
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
+        }
+
+        function formatVttTime(sec) {
+            const h = Math.floor(sec / 3600);
+            const m = Math.floor((sec % 3600) / 60);
+            const s = Math.floor(sec % 60);
+            const ms = Math.floor((sec % 1) * 1000);
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
+        }
+
+        // Render Results
+        function renderResults(res) {
+            subtitleChunks = res.chunks;
+
+            // Simplified Chinese OpenCC normalization
+            if (window.OpenCC) {
+                try {
+                    const converter = OpenCC.Converter({ from: 'hk', to: 'cn' });
+                    subtitleChunks.forEach(c => {
+                        if (c.text) c.text = converter(c.text);
+                    });
+                } catch(e) {}
+            }
+
+            resultStudio.classList.add('visible');
+            txtTotalSegments.textContent = subtitleChunks.length;
+            txtSpeedSec.textContent = `${res.durationSec}s`;
+
+            timelineList.innerHTML = '';
+            let vttContent = "WEBVTT\n\n";
+
+            subtitleChunks.forEach((chunk, index) => {
+                const start = chunk.timestamp[0] ?? 0;
+                const end = chunk.timestamp[1] ?? (start + 2);
+                const text = chunk.text.trim();
+
+                vttContent += `${formatVttTime(start)} --> ${formatVttTime(end)}\n${text}\n\n`;
+
+                const row = document.createElement('div');
+                row.className = "sub-row";
+                row.innerHTML = `
+                    <button class="sub-time" title="跳转播放">${formatSeconds(start)}</button>
+                    <div class="sub-text" contenteditable="true" data-index="${index}">${text}</div>
+                `;
+
+                row.querySelector('.sub-time').addEventListener('click', () => {
+                    videoPlayer.currentTime = start;
+                    videoPlayer.play();
+                });
+
+                row.querySelector('.sub-text').addEventListener('blur', (e) => {
+                    subtitleChunks[index].text = e.target.innerText.trim();
+                });
+
+                timelineList.appendChild(row);
+            });
+
+            // Mount Live Track on Video
+            if (vttBlobUrl) URL.revokeObjectURL(vttBlobUrl);
+            const vttBlob = new Blob([vttContent], { type: 'text/vtt' });
+            vttBlobUrl = URL.createObjectURL(vttBlob);
+
+            while (videoPlayer.getElementsByTagName('track').length > 0) {
+                videoPlayer.removeChild(videoPlayer.getElementsByTagName('track')[0]);
+            }
+
+            const track = document.createElement('track');
+            track.kind = 'subtitles';
+            track.label = 'Subtitles';
+            track.srclang = 'zh';
+            track.src = vttBlobUrl;
+            track.default = true;
+            videoPlayer.appendChild(track);
+
+            if (videoPlayer.duration) {
+                playerDuration.textContent = formatSeconds(videoPlayer.duration);
+            }
+        }
+
+        // Export Actions
+        document.getElementById('btnExportSrt').addEventListener('click', () => {
+            if (!subtitleChunks.length) return;
+            let srt = '';
+            subtitleChunks.forEach((c, idx) => {
+                const s = c.timestamp[0] ?? 0;
+                const e = c.timestamp[1] ?? (s + 2);
+                srt += `${idx + 1}\n${formatSrtTime(s)} --> ${formatSrtTime(e)}\n${c.text.trim()}\n\n`;
+            });
+            downloadFile(srt, `${selectedFile.name.replace(/\.[^/.]+$/, "")}.srt`, 'text/plain');
+        });
+
+        document.getElementById('btnExportVtt').addEventListener('click', () => {
+            if (!subtitleChunks.length) return;
+            let vtt = 'WEBVTT\n\n';
+            subtitleChunks.forEach((c) => {
+                const s = c.timestamp[0] ?? 0;
+                const e = c.timestamp[1] ?? (s + 2);
+                vtt += `${formatVttTime(s)} --> ${formatVttTime(e)}\n${c.text.trim()}\n\n`;
+            });
+            downloadFile(vtt, `${selectedFile.name.replace(/\.[^/.]+$/, "")}.vtt`, 'text/vtt');
+        });
+
+        document.getElementById('btnExportTxt').addEventListener('click', () => {
+            if (!subtitleChunks.length) return;
+            const txt = subtitleChunks.map(c => c.text.trim()).join('\n');
+            downloadFile(txt, `${selectedFile.name.replace(/\.[^/.]+$/, "")}.txt`, 'text/plain');
+        });
+
+        document.getElementById('btnCopyAll').addEventListener('click', (e) => {
+            if (!subtitleChunks.length) return;
+            const txt = subtitleChunks.map(c => c.text.trim()).join('\n');
+            navigator.clipboard.writeText(txt);
+            const orig = e.currentTarget.textContent;
+            e.currentTarget.textContent = i18n[currentLang].copied;
+            setTimeout(() => e.currentTarget.textContent = orig, 1200);
+        });
+
+        function downloadFile(content, fileName, mimeType) {
+            const blob = new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        // Initialize default view
+        setLanguage('zh');
+    </script>
+</body>
+</html>

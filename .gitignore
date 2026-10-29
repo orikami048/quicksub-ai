@@ -1,0 +1,9 @@
+model_cache/
+*.tmp
+__pycache__/
+*.pyc
+*.wav
+*.mp3
+*.mp4
+*.m4a
+*.backup*
