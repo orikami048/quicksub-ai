@@ -1,9 +1,9 @@
-// worker.js - Background Web Worker with Same-Origin Cloudflare/Local Proxy
+// worker.js - Background Web Worker with Local & Cloudflare Universal Edge Proxy
 import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3';
 
 env.allowLocalModels = false;
 
-// 线上与本地均统一启用浏览器 CacheStorage，避免反复拉取大模型
+// 启用浏览器 CacheStorage，模型只下载一次永久保留在本地
 env.useBrowserCache = true;
 
 let transcriber = null;
@@ -18,9 +18,22 @@ self.onmessage = async (e) => {
         const { audioData, modelId, language, device, mirror } = payload;
 
         try {
-            // 无论是本地还是 Cloudflare Worker 线上，均通过同源 /model-proxy/ 反代，100% 解决 CORS 跨域
-            const origin = self.location.origin;
-            env.remoteHost = `${origin}/model-proxy/${mirror}`;
+            // 自适应智能代理源（彻底解决 GitHub Pages 静态 404 与 hf-mirror 跨域 CORS 问题）
+            const hostname = self.location.hostname;
+            let proxyBase = '';
+
+            if (hostname === 'localhost' || hostname === '127.0.0.1') {
+                // 1. 本地调试：走本地 serve.py 代理
+                proxyBase = `${self.location.origin}/model-proxy/${mirror}`;
+            } else if (hostname.includes('workers.dev') || hostname.includes('pages.dev')) {
+                // 2. Cloudflare 线上：走 Worker 边缘代理
+                proxyBase = `${self.location.origin}/model-proxy/${mirror}`;
+            } else {
+                // 3. GitHub Pages (github.io) 纯静态托管：由 Cloudflare Worker 全球边缘提供跨域反代，杜绝 404
+                proxyBase = `https://quicksub-ai.orikami.workers.dev/model-proxy/${mirror}`;
+            }
+
+            env.remoteHost = proxyBase;
             env.remotePathTemplate = '{model}/resolve/{revision}/';
 
             if (!transcriber || currentModelId !== modelId || currentDevice !== device || currentMirror !== mirror) {
