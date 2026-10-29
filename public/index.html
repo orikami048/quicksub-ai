@@ -1,0 +1,995 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuickSub AI - 纯前端免上传·免费AI视频自动生成字幕 (WebGPU)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- OpenCC JS for 100% accurate Traditional to Simplified Chinese conversion -->
+    <script src="https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.js"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#eef2ff',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #18181b; }
+        ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
+        .gradient-text {
+            background: linear-gradient(135deg, #818cf8 0%, #c084fc 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .ad-container {
+            border: 1px dashed #4b5563;
+            background: rgba(31, 41, 55, 0.4);
+        }
+    </style>
+</head>
+<body class="bg-zinc-950 text-zinc-100 min-h-screen flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
+
+    <!-- Top Navigation Bar -->
+    <header class="border-b border-zinc-800 bg-zinc-900/60 backdrop-blur sticky top-0 z-50">
+        <div class="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+            <!-- Brand Logo -->
+            <div class="flex items-center space-x-3">
+                <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+                    <i class="fa-solid fa-closed-captioning text-white text-lg"></i>
+                </div>
+                <div>
+                    <span class="font-bold text-lg tracking-tight">QuickSub<span class="text-indigo-400">.AI</span></span>
+                    <span id="badgeEnv" class="ml-2 text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">WebGPU 纯前端</span>
+                </div>
+            </div>
+
+            <!-- Header Controls: Hardware Badge & Storage Clean & Lang Switch -->
+            <div class="flex items-center space-x-2 sm:space-x-3">
+                <!-- Hardware Badge -->
+                <div id="gpuBadge" class="hidden sm:flex items-center space-x-1.5 text-xs px-2.5 py-1 rounded-full bg-zinc-800 text-zinc-300 border border-zinc-700">
+                    <span class="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" id="gpuDot"></span>
+                    <span id="gpuText">检测显卡加速...</span>
+                </div>
+
+                <!-- Storage / Uninstall Button -->
+                <button id="cleanCacheBtn" class="flex items-center space-x-1.5 text-xs px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-red-950/40 text-zinc-300 hover:text-red-300 border border-zinc-700 hover:border-red-800/60 transition group" title="管理与清空本地模型存储空间">
+                    <i class="fa-solid fa-trash-can text-[11px] text-zinc-400 group-hover:text-red-400"></i>
+                    <span id="cleanCacheText">卸载模型 (检查中...)</span>
+                </button>
+
+                <!-- Language Toggle Switch -->
+                <div class="flex items-center bg-zinc-800 border border-zinc-700 rounded-lg p-0.5 text-xs">
+                    <button id="langZhBtn" class="px-3 py-1 rounded-md font-medium transition-all bg-indigo-600 text-white shadow">中文</button>
+                    <button id="langEnBtn" class="px-3 py-1 rounded-md font-medium text-zinc-400 hover:text-zinc-200 transition-all">EN</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="flex-1 max-w-6xl mx-auto px-4 py-8 w-full space-y-8">
+
+        <!-- Hero Title Section -->
+        <div class="text-center space-y-3 pt-2">
+            <h1 class="text-3xl sm:text-5xl font-extrabold tracking-tight" id="heroTitle">
+                免费 AI 视频自动生成字幕 <br class="hidden sm:block"/>
+                <span class="gradient-text">本地浏览器直接运行 · 零上传绝对隐私</span>
+            </h1>
+            <p class="text-zinc-400 max-w-2xl mx-auto text-sm sm:text-base" id="heroSubtitle">
+                文件不出电脑，保障绝对隐私。调用本机显卡瞬间提取精准时间轴，一键导出剪映/PR标准 SRT。
+            </p>
+        </div>
+
+
+
+        <!-- Upload & Settings Card -->
+        <div class="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl space-y-6">
+            
+            <!-- File Drop Area -->
+            <div id="dropZone" class="border-2 border-dashed border-zinc-700 hover:border-indigo-500 rounded-xl p-8 sm:p-12 text-center transition-all duration-200 cursor-pointer bg-zinc-950/40 hover:bg-zinc-900/60 group">
+                <input type="file" id="fileInput" class="hidden" accept="video/*,audio/*,.mp4,.mkv,.mov,.webm,.mp3,.wav,.m4a">
+                <div class="flex flex-col items-center space-y-3">
+                    <div class="w-14 h-14 rounded-full bg-zinc-800 group-hover:bg-indigo-600/20 flex items-center justify-center transition-colors">
+                        <i class="fa-solid fa-cloud-arrow-up text-2xl text-zinc-400 group-hover:text-indigo-400"></i>
+                    </div>
+                    <div>
+                        <p class="text-base font-semibold text-zinc-200" id="dropTitle">
+                            点击上传，或直接拖拽视频/音频文件到此处
+                        </p>
+                        <p class="text-xs text-zinc-400 mt-1" id="dropSubtitle">
+                            支持 MP4, MOV, WebM, MP3, WAV, M4A（浏览器前端直接解码）
+                        </p>
+                    </div>
+                    <div id="fileInfo" class="hidden mt-2 text-xs font-medium text-indigo-300 bg-indigo-950/50 px-3 py-1.5 rounded-lg border border-indigo-800">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Parameters Selector (Simplified 3 Columns: Model, Language, Device) -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+                
+                <!-- Model Selection (Tiny removed, Small is default recommended) -->
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2 flex items-center justify-between">
+                        <span id="labelModel">模型精度</span>
+                        <span class="text-[10px] text-amber-400 font-semibold">首推 Small 高精</span>
+                    </label>
+                    <select id="modelSelect" class="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-indigo-500 text-zinc-200">
+                        <option value="onnx-community/whisper-small" selected>🔥 Whisper Small (~240MB, 高精准·强力推荐)</option>
+                        <option value="onnx-community/whisper-base">⚡ Whisper Base (~75MB, 极速响应·轻量备选)</option>
+                    </select>
+                </div>
+
+                <!-- Language Selection -->
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2" id="labelLang">识别音频语言</label>
+                    <select id="langSelect" class="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-indigo-500 text-zinc-200">
+                        <option value="chinese" selected>🇨🇳 中文普通话 / 粤语</option>
+                        <option value="english">🇺🇸 英语 (English)</option>
+                        <option value="japanese">🇯🇵 日语 (日本語)</option>
+                        <option value="auto">🌐 自动检测语言 (Auto Detect)</option>
+                        <option value="spanish">🇪🇸 西班牙语 (Spanish)</option>
+                        <option value="korean">🇰🇷 韩语 (Korean)</option>
+                    </select>
+                </div>
+
+                <!-- Inference Device Selection -->
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2" id="labelDevice">运行加速模式</label>
+                    <select id="deviceSelect" class="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-indigo-500 text-zinc-200">
+                        <option value="webgpu" selected>🚀 WebGPU (显卡直驱·极速)</option>
+                        <option value="wasm">💻 CPU (WebAssembly 通用)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Action Button -->
+            <button id="startBtn" disabled class="w-full py-3.5 px-6 rounded-xl font-bold text-white bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-lg shadow-indigo-600/30 flex items-center justify-center space-x-2">
+                <i class="fa-solid fa-wand-magic-sparkles"></i>
+                <span id="startBtnText">立即生成字幕</span>
+            </button>
+        </div>
+
+        <!-- Progress and Waiting Area -->
+        <div id="progressSection" class="hidden bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-5">
+            
+            <!-- First-time Notice Banner -->
+            <div id="firstTimeNotice" class="bg-indigo-950/40 border border-indigo-800/60 rounded-xl p-3.5 text-xs text-indigo-200 flex items-start space-x-3">
+                <i class="fa-solid fa-circle-info text-indigo-400 text-base mt-0.5 flex-shrink-0"></i>
+                <div class="space-y-1">
+                    <p class="font-semibold text-indigo-300" id="firstTimeNoticeTitle">💡 首次使用提示：正在初始化 AI 模型</p>
+                    <p class="text-indigo-200/80 leading-relaxed" id="firstTimeNoticeDesc">
+                        初次运行需在浏览器中下载 AI 语音模型（约 40~75MB），速度取决于网络；<b>下载完成后永久缓存在本地，后续再次使用无需重复下载，直接秒开！</b>
+                    </p>
+                </div>
+            </div>
+
+            <!-- Status Header -->
+            <div class="flex items-center justify-between text-sm">
+                <div class="flex items-center space-x-2.5">
+                    <i class="fa-solid fa-circle-notch fa-spin text-indigo-400" id="spinnerIcon"></i>
+                    <span id="statusMessage" class="font-medium text-zinc-200">正在准备中...</span>
+                </div>
+                <span id="percentText" class="text-xs font-mono font-bold text-indigo-400">0%</span>
+            </div>
+
+            <!-- Main Progress Bar -->
+            <div class="w-full bg-zinc-800 rounded-full h-3 overflow-hidden p-0.5 border border-zinc-700/50">
+                <div id="progressBar" class="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 h-2 rounded-full transition-all duration-300 w-0"></div>
+            </div>
+
+            <!-- Sub-stage details -->
+            <div class="flex items-center justify-between text-[11px] text-zinc-500">
+                <span id="subStageFile">等待调度...</span>
+                <span id="subStageStatus">Step 1/2: 模型就绪检查</span>
+            </div>
+
+
+        </div>
+
+        <!-- Results Workspace (Video Preview + Subtitles List) -->
+        <div id="resultSection" class="hidden space-y-6">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800 pb-4">
+                <div>
+                    <h2 class="text-xl font-bold text-zinc-100 flex items-center space-x-2">
+                        <span id="resultTitle">字幕提取完成</span>
+                        <span id="speedBadge" class="text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full"></span>
+                    </h2>
+                    <p class="text-xs text-zinc-400 mt-0.5" id="resultSubtitle">点击任意字幕句可定位播放；支持在框内直接双击修改错别字。</p>
+                </div>
+                <!-- Export buttons -->
+                <div class="flex items-center flex-wrap gap-2">
+                    <button id="downloadSrtBtn" class="text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded-lg flex items-center space-x-1.5 transition shadow">
+                        <i class="fa-solid fa-file-arrow-down"></i>
+                        <span id="btnExportSrt">导出剪映/PR标准 .SRT</span>
+                    </button>
+                    <button id="downloadVttBtn" class="text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 px-3 py-2 rounded-lg flex items-center space-x-1.5 transition">
+                        <i class="fa-solid fa-file-lines"></i>
+                        <span>导出 .VTT</span>
+                    </button>
+                    <button id="downloadTxtBtn" class="text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 px-3 py-2 rounded-lg flex items-center space-x-1.5 transition">
+                        <i class="fa-solid fa-align-left"></i>
+                        <span id="btnExportTxt">导出纯文本 .TXT</span>
+                    </button>
+                    <button id="copyAllBtn" class="text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 px-3 py-2 rounded-lg flex items-center space-x-1.5 transition">
+                        <i class="fa-solid fa-copy"></i>
+                        <span id="btnCopyAll">一键复制全文</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Two-column workspace -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                <!-- Video Player Preview -->
+                <div class="lg:col-span-5 space-y-3">
+                    <div class="bg-black rounded-xl overflow-hidden border border-zinc-800 aspect-video flex items-center justify-center relative shadow-lg">
+                        <video id="videoPlayer" controls class="w-full h-full object-contain"></video>
+                    </div>
+                    <div class="text-[11px] text-zinc-400 flex items-center justify-between">
+                        <span id="previewTrackDesc">播放器已自动内嵌字幕轨道实时显示</span>
+                        <span id="totalDurationText">00:00</span>
+                    </div>
+                </div>
+
+                <!-- Subtitles Timeline list -->
+                <div class="lg:col-span-7 bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex flex-col h-[440px]">
+                    <div class="text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2 flex justify-between">
+                        <span><span id="segTitleText">字幕分句列表</span> (<span id="segmentCount">0</span>)</span>
+                        <span class="text-zinc-500" id="segEditableHint">直接点击文本可实时编辑</span>
+                    </div>
+                    <div id="subtitlesList" class="flex-1 overflow-y-auto space-y-2 pr-1">
+                        <!-- Segments will be inserted here dynamically -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SEO & FAQ Section -->
+        <section class="border-t border-zinc-800 pt-10 pb-6 space-y-6">
+            <h3 class="text-lg font-bold text-zinc-300" id="faqHeaderTitle">常见问题解答与技术原理</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-zinc-400" id="faqContainer">
+                <!-- Dynamically filled by JS for EN / ZH -->
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-zinc-800 bg-zinc-950 text-zinc-500 text-xs py-6">
+        <div class="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <p id="footerCopyright">© 2026 QuickSub AI. 国内外双轨·零算力成本 AI 视频字幕解决方案.</p>
+            <div class="flex space-x-4">
+                <a href="#" class="hover:text-zinc-300">Privacy Policy</a>
+                <a href="#" class="hover:text-zinc-300">Terms of Service</a>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Uninstall Model Confirmation Modal -->
+    <div id="uninstallModal" class="hidden fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div class="flex items-center space-x-3 text-amber-400">
+                <div class="w-10 h-10 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+                    <i class="fa-solid fa-triangle-exclamation text-lg"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-zinc-100 text-base" id="modalTitle">卸载本地 AI 模型缓存</h3>
+                    <p class="text-xs text-zinc-400" id="modalSubtitle">释放本地磁盘空间</p>
+                </div>
+            </div>
+            
+            <p class="text-sm text-zinc-300 leading-relaxed" id="modalDesc">
+                当前已占用本地存储空间：<span id="modalCacheSize" class="font-bold text-amber-300">0 MB</span>。<br/>
+                卸载后将<b>彻底删除</b>浏览器及本地所下载的全部 Whisper 模型权重，完全释放磁盘空间。下次使用时需重新下载。
+            </p>
+
+            <div class="flex items-center justify-end space-x-3 pt-3">
+                <button id="modalCancelBtn" class="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-300 bg-zinc-800 hover:bg-zinc-700 transition">
+                    取消
+                </button>
+                <button id="modalConfirmBtn" class="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-red-600 hover:bg-red-500 transition shadow-lg shadow-red-600/30 flex items-center space-x-1.5">
+                    <i class="fa-solid fa-trash-can"></i>
+                    <span id="modalConfirmText">确认彻底卸载</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- App Logic Script -->
+    <script>
+        // State variables
+        let currentLang = 'zh'; // 'zh' or 'en'
+        let currentMirror = 'china'; // 'china' (for zh) or 'global' (for en)
+        let selectedFile = null;
+        let audioFloat32 = null;
+        let subtitleChunks = [];
+        let worker = null;
+        let vttBlobUrl = null;
+
+        // UI Language Dictionary
+        const i18n = {
+            zh: {
+                title: "QuickSub AI - 纯前端免上传·免费AI视频自动生成字幕 (WebGPU)",
+                badge: "WebGPU 纯前端",
+                gpuDetect: "检测显卡加速...",
+                gpuReady: "WebGPU 显卡加速 ⚡",
+                gpuWasm: "CPU (WebAssembly) 模式",
+                heroTitle: `免费 AI 视频自动生成字幕 <br class="hidden sm:block"/><span class="gradient-text">本地浏览器直接运行 · 零上传绝对隐私</span>`,
+                heroSubtitle: "文件不出电脑，保障绝对隐私。调用本机显卡瞬间提取精准时间轴，一键导出剪映/PR标准 SRT。",
+                ad1Tag: "商业化广告位 #1 (顶部横幅 728x90)",
+                ad1Content: `<p class="font-medium text-zinc-300 text-sm">💡 国内变现展示：穿山甲 / 优量汇 / 百度联盟广告位</p><p class="text-[11px] text-zinc-400">精准定向剪映创作者、B站UP主、配音工具、麦克风数码硬件推广。</p>`,
+                dropTitle: "点击上传，或直接拖拽视频/音频文件到此处",
+                dropSubtitle: "支持 MP4, MOV, WebM, MP3, WAV, M4A（浏览器前端直接解码）",
+                labelModel: "模型精度",
+                labelLang: "识别音频语言",
+                labelDevice: "运行加速模式",
+                startBtn: "立即生成字幕",
+                firstTimeTitle: "💡 首次使用提示：正在初始化 AI 模型",
+                firstTimeDesc: "初次运行需在浏览器中下载 AI 语音模型（约 40~75MB），初次下载会稍慢一些；<b>下载完成后永久缓存在本地，后续再次使用无需下载，直接极速秒开！</b>",
+                step1Label: "Step 1/2: 模型初始化与下载",
+                step2Label: "Step 2/2: WebGPU 显卡极速转写中",
+                preparing: "正在准备中...",
+                ad2Tag: "商业化广告位 #2 (转写等待期高转化区)",
+                ad2Title: "🎯 字幕提取中，请勿关闭页面...",
+                ad2Desc: "用户等待 15~30 秒时注意力最集中。是展示视频贴片广告、AI 配音工具推荐或会员打赏的绝佳场景！",
+                resultTitle: "字幕提取完成",
+                resultSubtitle: "点击任意字幕句可定位播放；支持在框内直接双击修改错别字。",
+                btnExportSrt: "导出剪映/PR标准 .SRT",
+                btnExportTxt: "导出纯文本 .TXT",
+                btnCopyAll: "一键复制全文",
+                previewTrackDesc: "播放器已自动内嵌字幕轨道实时显示",
+                segTitleText: "字幕分句列表",
+                segEditableHint: "直接点击文本可实时编辑",
+                faqHeader: "常见问题与使用说明",
+                faqs: [
+                    {
+                        q: "为什么第一次运行会慢一点？",
+                        a: "首次使用时，浏览器需要将 AI 语音模型权重下载到本地（约 40~75MB）。下载完成后会自动缓存在你的本地浏览器中，后续无论使用多少次都无需再次下载，直接秒级转写！"
+                    },
+                    {
+                        q: "导出的字幕怎么在剪映 / Premiere 中使用？",
+                        a: "点击【导出剪映/PR标准 .SRT】，直接将下载的文件拖入剪映专业版、Premiere 或 Final Cut Pro 的时间线，字幕与对白完美对齐！"
+                    },
+                    {
+                        q: "我的视频隐私安全吗？",
+                        a: "100% 绝对安全！文件根本不会上传到任何服务器，甚至断开网络依然能在本地转写。所有计算完全受限于浏览器沙箱。"
+                    }
+                ],
+                copyright: "© 2026 QuickSub AI. 国内外双轨·零算力成本 AI 视频字幕解决方案."
+            },
+            en: {
+                title: "QuickSub AI - 100% Free & Private Online Auto Subtitle Generator (WebGPU)",
+                badge: "WebGPU Client-side",
+                gpuDetect: "Detecting Hardware...",
+                gpuReady: "WebGPU Accelerated ⚡",
+                gpuWasm: "CPU (WASM) Mode",
+                heroTitle: `Free AI Subtitle Generator <br class="hidden sm:block"/><span class="gradient-text">Runs Locally In Your Browser · 100% Private</span>`,
+                heroSubtitle: "Zero server upload, complete data privacy. Extract accurate subtitles from video/audio files directly with your GPU.",
+                ad1Tag: "Sponsored Ad Slot #1 (AdSense 728x90 Billboard)",
+                ad1Content: `<p class="font-medium text-zinc-300 text-sm">💡 Global Monetization: Google AdSense / Mediavine Billboard</p><p class="text-[11px] text-zinc-400">Target US/EU creators looking for video plugins, microphones, and creative SaaS ($15-$30 RPM).</p>`,
+                dropTitle: "Click to upload or drag & drop video / audio",
+                dropSubtitle: "Supports MP4, MOV, WebM, MP3, WAV, M4A (Client-side decoded)",
+                labelModel: "Model Size",
+                labelLang: "Audio Language",
+                labelDevice: "Inference Device",
+                startBtn: "Generate Subtitles Now",
+                firstTimeTitle: "💡 First-time Setup: Initializing AI Model",
+                firstTimeDesc: "The AI speech model (~40-75MB) will be downloaded on first run. <b>This only happens once; subsequent runs will be instant as the model remains permanently cached locally!</b>",
+                step1Label: "Step 1/2: Model Downloading & Caching",
+                step2Label: "Step 2/2: WebGPU Fast Audio Transcription",
+                preparing: "Preparing...",
+                ad2Tag: "Sponsored Ad Slot #2 (High Retention During Waiting)",
+                ad2Title: "🎯 While your subtitles are generating...",
+                ad2Desc: "Users wait 15-30s here without closing the tab. Perfect placement for Video Ads or Affiliate Offers!",
+                resultTitle: "Transcription Complete",
+                resultSubtitle: "Click any subtitle line to seek video. Edit text inline if needed.",
+                btnExportSrt: "Export .SRT (Premiere/CapCut)",
+                btnExportTxt: "Export .TXT",
+                btnCopyAll: "Copy All to Clipboard",
+                previewTrackDesc: "Preview with live subtitles track",
+                segTitleText: "Subtitle Segments",
+                segEditableHint: "Editable text block",
+                faqHeader: "Frequently Asked Questions (SEO Keyword Target)",
+                faqs: [
+                    {
+                        q: "Why is the first run slightly slower?",
+                        a: "On your first use, the browser downloads the AI model weights (~40-75MB). Once completed, it is cached locally in your browser. All future transcriptions will start instantly with 0 download wait!"
+                    },
+                    {
+                        q: "How to import the .SRT into Premiere / CapCut / YouTube?",
+                        a: "You can drag and drop the exported .SRT subtitle file directly into Adobe Premiere Pro, Final Cut Pro, CapCut, DaVinci Resolve, or upload it to YouTube Subtitle Studio."
+                    },
+                    {
+                        q: "Are my videos uploaded to your server?",
+                        a: "No. Your privacy is 100% guaranteed. All video/audio decoding and AI transcription happen completely inside your browser sandbox. Your media never leaves your computer."
+                    }
+                ],
+                copyright: "© 2026 QuickSub AI. Built for Global Creators. Powered by Transformers.js & WebGPU."
+            }
+        };
+
+        // Elements
+        const cleanCacheBtn = document.getElementById('cleanCacheBtn');
+        const cleanCacheText = document.getElementById('cleanCacheText');
+        const uninstallModal = document.getElementById('uninstallModal');
+        const modalTitle = document.getElementById('modalTitle');
+        const modalSubtitle = document.getElementById('modalSubtitle');
+        const modalDesc = document.getElementById('modalDesc');
+        const modalCacheSize = document.getElementById('modalCacheSize');
+        const modalCancelBtn = document.getElementById('modalCancelBtn');
+        const modalConfirmBtn = document.getElementById('modalConfirmBtn');
+        const modalConfirmText = document.getElementById('modalConfirmText');
+        let currentCacheSizeBytes = 0;
+
+        const isLocalHost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+
+        async function updateCacheDisplay() {
+            try {
+                if (isLocalHost) {
+                    const res = await fetch('/api/cache-info');
+                    const data = await res.json();
+                    currentCacheSizeBytes = data.sizeBytes || 0;
+                } else if (navigator.storage && navigator.storage.estimate) {
+                    const estimate = await navigator.storage.estimate();
+                    currentCacheSizeBytes = estimate.usage || 0;
+                }
+                const mb = (currentCacheSizeBytes / (1024 * 1024)).toFixed(1);
+                if (currentCacheSizeBytes > 0) {
+                    cleanCacheText.textContent = currentLang === 'zh' ? `卸载模型 (${mb}MB)` : `Uninstall Model (${mb}MB)`;
+                    cleanCacheBtn.classList.remove('opacity-60');
+                } else {
+                    cleanCacheText.textContent = currentLang === 'zh' ? `本地暂无模型` : `No Models Cached`;
+                    cleanCacheBtn.classList.add('opacity-60');
+                }
+            } catch(e) {
+                cleanCacheText.textContent = currentLang === 'zh' ? `管理模型存储` : `Storage`;
+            }
+        }
+        updateCacheDisplay();
+
+        cleanCacheBtn.addEventListener('click', async () => {
+            // 点击弹窗前，先实时拉取最新真实存储占用，杜绝未刷新不同步
+            await updateCacheDisplay();
+            const mb = (currentCacheSizeBytes / (1024 * 1024)).toFixed(1);
+            modalCacheSize.textContent = `${mb} MB`;
+            if (currentLang === 'zh') {
+                modalTitle.textContent = "卸载本地 AI 模型缓存";
+                modalSubtitle.textContent = "释放本地磁盘空间";
+                modalCancelBtn.textContent = "取消";
+                modalConfirmText.textContent = "确认彻底卸载";
+            } else {
+                modalTitle.textContent = "Uninstall Local AI Models";
+                modalSubtitle.textContent = "Free up disk space";
+                modalCancelBtn.textContent = "Cancel";
+                modalConfirmText.textContent = "Confirm Uninstall";
+            }
+            uninstallModal.classList.remove('hidden');
+        });
+
+        modalCancelBtn.addEventListener('click', () => {
+            uninstallModal.classList.add('hidden');
+        });
+
+        modalConfirmBtn.addEventListener('click', async () => {
+            modalConfirmBtn.disabled = true;
+            modalConfirmText.textContent = currentLang === 'zh' ? "正在卸载清除..." : "Uninstalling...";
+
+            try {
+                // 1. 清空前端浏览器 CacheStorage
+                if (window.caches) {
+                    const keys = await caches.keys();
+                    for (const key of keys) {
+                        await caches.delete(key);
+                    }
+                }
+                // 2. 清空后端 model_cache 目录
+                await fetch('/api/clear-cache', { method: 'POST' });
+
+                await updateCacheDisplay();
+                uninstallModal.classList.add('hidden');
+                alert(currentLang === 'zh' ? "✅ 本地模型已彻底卸载，磁盘空间已全部释放！" : "✅ Local models uninstalled successfully, disk space freed!");
+            } catch (err) {
+                alert("Uninstall error: " + err.message);
+            } finally {
+                modalConfirmBtn.disabled = false;
+                modalConfirmText.textContent = currentLang === 'zh' ? "确认彻底卸载" : "Confirm Uninstall";
+            }
+        });
+
+        // Elements
+        const langZhBtn = document.getElementById('langZhBtn');
+        const langEnBtn = document.getElementById('langEnBtn');
+        const badgeEnv = document.getElementById('badgeEnv');
+        const heroTitle = document.getElementById('heroTitle');
+        const heroSubtitle = document.getElementById('heroSubtitle');
+        const dropZone = document.getElementById('dropZone');
+        const dropTitle = document.getElementById('dropTitle');
+        const dropSubtitle = document.getElementById('dropSubtitle');
+        const fileInput = document.getElementById('fileInput');
+        const fileInfo = document.getElementById('fileInfo');
+        const modelSelect = document.getElementById('modelSelect');
+        const langSelect = document.getElementById('langSelect');
+        const deviceSelect = document.getElementById('deviceSelect');
+        const labelModel = document.getElementById('labelModel');
+        const labelLang = document.getElementById('labelLang');
+        const labelDevice = document.getElementById('labelDevice');
+        const startBtn = document.getElementById('startBtn');
+        const startBtnText = document.getElementById('startBtnText');
+        const progressSection = document.getElementById('progressSection');
+        const progressBar = document.getElementById('progressBar');
+        const percentText = document.getElementById('percentText');
+        const statusMessage = document.getElementById('statusMessage');
+        const subStageFile = document.getElementById('subStageFile');
+        const subStageStatus = document.getElementById('subStageStatus');
+        const firstTimeNoticeTitle = document.getElementById('firstTimeNoticeTitle');
+        const firstTimeNoticeDesc = document.getElementById('firstTimeNoticeDesc');
+        const resultSection = document.getElementById('resultSection');
+        const resultTitle = document.getElementById('resultTitle');
+        const resultSubtitle = document.getElementById('resultSubtitle');
+        const btnExportSrt = document.getElementById('btnExportSrt');
+        const btnExportTxt = document.getElementById('btnExportTxt');
+        const btnCopyAll = document.getElementById('btnCopyAll');
+        const previewTrackDesc = document.getElementById('previewTrackDesc');
+        const segTitleText = document.getElementById('segTitleText');
+        const segEditableHint = document.getElementById('segEditableHint');
+        const videoPlayer = document.getElementById('videoPlayer');
+        const subtitlesList = document.getElementById('subtitlesList');
+        const segmentCount = document.getElementById('segmentCount');
+        const speedBadge = document.getElementById('speedBadge');
+        const gpuBadge = document.getElementById('gpuBadge');
+        const gpuDot = document.getElementById('gpuDot');
+        const gpuText = document.getElementById('gpuText');
+        const faqHeaderTitle = document.getElementById('faqHeaderTitle');
+        const faqContainer = document.getElementById('faqContainer');
+        const footerCopyright = document.getElementById('footerCopyright');
+
+        // 自动清理浏览器内残留的残缺旧缓存（交由服务端本地磁盘缓存托管）
+        if (window.caches) {
+            caches.keys().then(keys => {
+                for (const k of keys) caches.delete(k);
+            }).catch(() => {});
+        }
+
+        // Apply Language Switch (and automatically bind internal network mirror)
+        function switchLanguage(lang) {
+            currentLang = lang;
+            const dict = i18n[lang];
+            document.title = dict.title;
+            badgeEnv.textContent = dict.badge;
+            heroTitle.innerHTML = dict.heroTitle;
+            heroSubtitle.textContent = dict.heroSubtitle;
+            dropTitle.textContent = dict.dropTitle;
+            dropSubtitle.textContent = dict.dropSubtitle;
+            labelModel.textContent = dict.labelModel;
+            labelLang.textContent = dict.labelLang;
+            labelDevice.textContent = dict.labelDevice;
+            startBtnText.textContent = dict.startBtn;
+            firstTimeNoticeTitle.textContent = dict.firstTimeTitle;
+            firstTimeNoticeDesc.innerHTML = dict.firstTimeDesc;
+            resultTitle.textContent = dict.resultTitle;
+            resultSubtitle.textContent = dict.resultSubtitle;
+            btnExportSrt.textContent = dict.btnExportSrt;
+            btnExportTxt.textContent = dict.btnExportTxt;
+            btnCopyAll.textContent = dict.btnCopyAll;
+            previewTrackDesc.textContent = dict.previewTrackDesc;
+            segTitleText.textContent = dict.segTitleText;
+            segEditableHint.textContent = dict.segEditableHint;
+            faqHeaderTitle.textContent = dict.faqHeader;
+            footerCopyright.textContent = dict.copyright;
+
+            // Render FAQs
+            faqContainer.innerHTML = '';
+            dict.faqs.forEach(item => {
+                const card = document.createElement('div');
+                card.className = "bg-zinc-900/50 p-4 rounded-xl border border-zinc-800/60";
+                card.innerHTML = `<h4 class="font-semibold text-zinc-200 text-sm mb-1">${item.q}</h4><p>${item.a}</p>`;
+                faqContainer.appendChild(card);
+            });
+
+            // Button active styles & Mirror binding
+            if (lang === 'zh') {
+                langZhBtn.className = "px-3 py-1 rounded-md font-medium transition-all bg-indigo-600 text-white shadow";
+                langEnBtn.className = "px-3 py-1 rounded-md font-medium text-zinc-400 hover:text-zinc-200 transition-all";
+                currentMirror = 'china'; // 中文强制国内极速镜像
+                langSelect.value = "chinese"; // 默认中文识别
+            } else {
+                langEnBtn.className = "px-3 py-1 rounded-md font-medium transition-all bg-indigo-600 text-white shadow";
+                langZhBtn.className = "px-3 py-1 rounded-md font-medium text-zinc-400 hover:text-zinc-200 transition-all";
+                currentMirror = 'global'; // 英文强制国外官方源
+                langSelect.value = "english"; // 默认英文识别
+            }
+        }
+
+        langZhBtn.addEventListener('click', () => switchLanguage('zh'));
+        langEnBtn.addEventListener('click', () => switchLanguage('en'));
+
+        // Auto-detect user environment language
+        const userNavLang = navigator.language || navigator.userLanguage || 'zh';
+        if (userNavLang.toLowerCase().startsWith('zh')) {
+            switchLanguage('zh');
+        } else {
+            switchLanguage('en');
+        }
+
+        // Check WebGPU capability
+        async function checkWebGPU() {
+            if (navigator.gpu) {
+                try {
+                    const adapter = await navigator.gpu.requestAdapter();
+                    if (adapter) {
+                        gpuDot.className = "w-2 h-2 rounded-full bg-emerald-400";
+                        gpuText.textContent = i18n[currentLang].gpuReady;
+                        deviceSelect.value = "webgpu";
+                        return;
+                    }
+                } catch(e) {}
+            }
+            gpuDot.className = "w-2 h-2 rounded-full bg-amber-400";
+            gpuText.textContent = i18n[currentLang].gpuWasm;
+            deviceSelect.value = "wasm";
+        }
+        checkWebGPU();
+
+        // Worker initialization
+        function initWorker() {
+            if (!worker) {
+                worker = new Worker('worker.js', { type: 'module' });
+                worker.onmessage = handleWorkerMessage;
+            }
+        }
+
+        // File Selection Handlers
+        dropZone.addEventListener('click', () => fileInput.click());
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('border-indigo-500', 'bg-zinc-900');
+        });
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('border-indigo-500', 'bg-zinc-900');
+        });
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('border-indigo-500', 'bg-zinc-900');
+            if (e.dataTransfer.files.length > 0) {
+                handleFileChosen(e.dataTransfer.files[0]);
+            }
+        });
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFileChosen(e.target.files[0]);
+            }
+        });
+
+        function handleFileChosen(file) {
+            selectedFile = file;
+            const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+            fileInfo.classList.remove('hidden');
+            fileInfo.innerHTML = `<i class="fa-solid fa-file-video mr-1.5"></i> ${file.name} (${sizeMb} MB)`;
+            startBtn.disabled = false;
+
+            // Load into preview player
+            const fileUrl = URL.createObjectURL(file);
+            videoPlayer.src = fileUrl;
+        }
+
+        // Convert audio from file to 16kHz Float32Array PCM for Whisper
+        async function extractAudioData(file) {
+            statusMessage.textContent = currentLang === 'zh' ? "正在从音视频中提取原始音轨..." : "Extracting audio track from media...";
+            percentText.textContent = "10%";
+            progressBar.style.width = "10%";
+            subStageStatus.textContent = currentLang === 'zh' ? "Step 1/2: 音频解码中" : "Step 1/2: Decoding Audio";
+
+            const arrayBuffer = await file.arrayBuffer();
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const decodedAudio = await audioCtx.decodeAudioData(arrayBuffer);
+
+            // Resample to 16000Hz mono using OfflineAudioContext
+            statusMessage.textContent = currentLang === 'zh' ? "正在重采样为 Whisper 标准 16kHz 音频流..." : "Resampling audio to 16kHz for Whisper...";
+            percentText.textContent = "25%";
+            progressBar.style.width = "25%";
+
+            const targetSampleRate = 16000;
+            const offlineCtx = new OfflineAudioContext(1, decodedAudio.duration * targetSampleRate, targetSampleRate);
+            const source = offlineCtx.createBufferSource();
+            source.buffer = decodedAudio;
+            source.connect(offlineCtx.destination);
+            source.start(0);
+
+            const renderedBuffer = await offlineCtx.startRendering();
+            return renderedBuffer.getChannelData(0);
+        }
+
+        // Start Transcription trigger
+        startBtn.addEventListener('click', async () => {
+            if (!selectedFile) return;
+
+            initWorker();
+            downloadTracker.reset();
+            startBtn.disabled = true;
+            progressSection.classList.remove('hidden');
+            resultSection.classList.add('hidden');
+            progressBar.style.width = "5%";
+            percentText.textContent = "5%";
+            statusMessage.textContent = currentLang === 'zh' ? "正在解析本地媒体文件..." : "Reading media file...";
+            subStageFile.textContent = selectedFile.name;
+
+            try {
+                audioFloat32 = await extractAudioData(selectedFile);
+
+                statusMessage.textContent = currentLang === 'zh' ? "正在检查并初始化 AI 语音模型..." : "Initializing AI Model...";
+                percentText.textContent = "30%";
+                progressBar.style.width = "30%";
+
+                // Automatically pass bound mirror (no manual option needed)
+                worker.postMessage({
+                    type: 'transcribe',
+                    payload: {
+                        audioData: audioFloat32,
+                        modelId: modelSelect.value,
+                        language: langSelect.value,
+                        device: deviceSelect.value,
+                        mirror: currentMirror
+                    }
+                });
+            } catch (err) {
+                alert((currentLang === 'zh' ? "音频解码失败: " : "Failed to decode audio: ") + err.message);
+                startBtn.disabled = false;
+                progressSection.classList.add('hidden');
+            }
+        });
+
+        // Global Smooth Multi-File Progress Aggregator (彻底解决多文件并发导致的横跳与抽搐)
+        const downloadTracker = {
+            files: {},
+            lastReportedPct: 0,
+            reset() {
+                this.files = {};
+                this.lastReportedPct = 0;
+            },
+            update(fileName, loaded, total) {
+                this.files[fileName] = { loaded, total };
+                let totalLoaded = 0;
+                let totalExpected = 0;
+                for (const k in this.files) {
+                    totalLoaded += this.files[k].loaded;
+                    totalExpected += this.files[k].total;
+                }
+                if (totalExpected === 0) return { pct: 0, loadedMB: "0", totalMB: "0" };
+                const rawPct = Math.round((totalLoaded / totalExpected) * 100);
+                // 确保进度条只单调向前稳健推进，绝对不回退、不跳动
+                this.lastReportedPct = Math.min(99, Math.max(this.lastReportedPct, rawPct));
+                return {
+                    pct: this.lastReportedPct,
+                    loadedMB: (totalLoaded / (1024 * 1024)).toFixed(1),
+                    totalMB: (totalExpected / (1024 * 1024)).toFixed(1)
+                };
+            }
+        };
+
+        // Worker Message Handler
+        function handleWorkerMessage(e) {
+            const { type, data } = e.data;
+
+            if (type === 'download_progress') {
+                subStageStatus.textContent = i18n[currentLang].step1Label;
+                if (data.status === 'progress' && data.total > 0) {
+                    const stats = downloadTracker.update(data.file || 'core', data.loaded, data.total);
+                    
+                    statusMessage.textContent = currentLang === 'zh' 
+                        ? `正在下载 AI 语音引擎: ${stats.loadedMB}MB / ${stats.totalMB}MB (${stats.pct}%)` 
+                        : `Downloading AI Engine: ${stats.loadedMB}MB / ${stats.totalMB}MB (${stats.pct}%)`;
+                    
+                    // 彻底隐藏冰冷底层的 encoder/decoder 技术文件名，改用优雅的阶段说明
+                    subStageFile.textContent = currentLang === 'zh' 
+                        ? "正在并行同步语音声学与文本核心组件... (仅首次下载，永久保存在本地)" 
+                        : "Synchronizing acoustic & text core components... (One-time download)";
+                    
+                    percentText.textContent = `${stats.pct}%`;
+                    progressBar.style.width = `${stats.pct}%`;
+                } else if (data.status === 'done') {
+                    statusMessage.textContent = currentLang === 'zh' ? "核心组件就绪，正在载入显卡..." : "Engine loaded, allocating to GPU...";
+                    updateCacheDisplay();
+                }
+            } else if (type === 'status') {
+                statusMessage.textContent = data.message;
+                if (data.phase === 'transcribing') {
+                    subStageStatus.textContent = i18n[currentLang].step2Label;
+                    subStageFile.textContent = "WebGPU 推理加速中...";
+                    percentText.textContent = "75%";
+                    progressBar.style.width = "75%";
+                    // 转写阶段模型必然已落盘，实时刷新缓存按钮
+                    updateCacheDisplay();
+                }
+            } else if (type === 'complete') {
+                progressBar.style.width = "100%";
+                percentText.textContent = "100%";
+                statusMessage.textContent = currentLang === 'zh' ? "转写完成！" : "Completed!";
+                subStageStatus.textContent = "Done";
+
+                // 转写完成，确保右上角卸载状态实时同步
+                updateCacheDisplay();
+
+                setTimeout(() => {
+                    progressSection.classList.add('hidden');
+                    startBtn.disabled = false;
+                    renderResults(data);
+                }, 500);
+
+            } else if (type === 'error') {
+                alert("Error: " + data.message);
+                progressSection.classList.add('hidden');
+                startBtn.disabled = false;
+            }
+        }
+
+        // Helper time format
+        function formatSeconds(sec) {
+            const m = Math.floor(sec / 60);
+            const s = Math.floor(sec % 60);
+            return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        }
+
+        function formatSrtTime(sec) {
+            const h = Math.floor(sec / 3600);
+            const m = Math.floor((sec % 3600) / 60);
+            const s = Math.floor(sec % 60);
+            const ms = Math.floor((sec % 1) * 1000);
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
+        }
+
+        function formatVttTime(sec) {
+            const h = Math.floor(sec / 3600);
+            const m = Math.floor((sec % 3600) / 60);
+            const s = Math.floor(sec % 60);
+            const ms = Math.floor((sec % 1) * 1000);
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
+        }
+
+        // Render Results with Automatic Simplified Chinese conversion
+        function renderResults(res) {
+            subtitleChunks = res.chunks;
+            
+            // 自动将繁体中文无损转为规范简体中文
+            if (window.OpenCC) {
+                try {
+                    const converter = OpenCC.Converter({ from: 'hk', to: 'cn' });
+                    subtitleChunks.forEach(c => {
+                        if (c.text) {
+                            c.text = converter(c.text);
+                        }
+                    });
+                } catch(e) {
+                    console.warn("OpenCC conversion error:", e);
+                }
+            }
+
+            resultSection.classList.remove('hidden');
+            speedBadge.textContent = currentLang === 'zh' 
+                ? `耗时 ${res.durationSec} 秒 (${res.deviceUsed.toUpperCase()} 加速 · 已智能转为规范简体)`
+                : `Completed in ${res.durationSec}s (${res.deviceUsed.toUpperCase()})`;
+            segmentCount.textContent = subtitleChunks.length;
+
+            subtitlesList.innerHTML = '';
+            let vttContent = "WEBVTT\n\n";
+
+            subtitleChunks.forEach((chunk, index) => {
+                const start = chunk.timestamp[0] ?? 0;
+                const end = chunk.timestamp[1] ?? (start + 2);
+                const text = chunk.text.trim();
+
+                // Build VTT track
+                vttContent += `${formatVttTime(start)} --> ${formatVttTime(end)}\n${text}\n\n`;
+
+                // Build editable segment UI
+                const item = document.createElement('div');
+                item.className = "flex items-start space-x-3 p-2.5 rounded-lg bg-zinc-950/60 hover:bg-zinc-800/80 border border-zinc-800/60 transition group cursor-pointer";
+                item.innerHTML = `
+                    <button class="text-xs font-mono text-indigo-400 bg-indigo-950/40 hover:bg-indigo-900/60 px-2 py-1 rounded border border-indigo-800/50 flex-shrink-0 transition" title="跳转到该时间点">
+                        <i class="fa-solid fa-play text-[9px] mr-1"></i>${formatSeconds(start)}
+                    </button>
+                    <div class="flex-1 text-sm text-zinc-200 outline-none focus:bg-zinc-900 focus:p-1 focus:rounded" contenteditable="true" data-index="${index}">
+                        ${text}
+                    </div>
+                `;
+
+                // Seek video on click
+                item.querySelector('button').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    videoPlayer.currentTime = start;
+                    videoPlayer.play();
+                });
+
+                // Inline edit update
+                const editableDiv = item.querySelector('[contenteditable]');
+                editableDiv.addEventListener('blur', (e) => {
+                    subtitleChunks[index].text = e.target.innerText.trim();
+                });
+
+                subtitlesList.appendChild(item);
+            });
+
+            // Attach WebVTT track to video player for live in-video subtitles
+            if (vttBlobUrl) URL.revokeObjectURL(vttBlobUrl);
+            const vttBlob = new Blob([vttContent], { type: 'text/vtt' });
+            vttBlobUrl = URL.createObjectURL(vttBlob);
+
+            // Remove existing tracks
+            while (videoPlayer.getElementsByTagName('track').length > 0) {
+                videoPlayer.removeChild(videoPlayer.getElementsByTagName('track')[0]);
+            }
+
+            const track = document.createElement('track');
+            track.kind = 'subtitles';
+            track.label = 'Generated Subtitles';
+            track.srclang = 'zh';
+            track.src = vttBlobUrl;
+            track.default = true;
+            videoPlayer.appendChild(track);
+        }
+
+        // Export Functions
+        document.getElementById('downloadSrtBtn').addEventListener('click', () => {
+            if (!subtitleChunks.length) return;
+            let srt = '';
+            subtitleChunks.forEach((c, idx) => {
+                const s = c.timestamp[0] ?? 0;
+                const e = c.timestamp[1] ?? (s + 2);
+                srt += `${idx + 1}\n${formatSrtTime(s)} --> ${formatSrtTime(e)}\n${c.text.trim()}\n\n`;
+            });
+            downloadFile(srt, `${selectedFile.name.replace(/\.[^/.]+$/, "")}_subtitles.srt`, 'text/plain');
+        });
+
+        document.getElementById('downloadVttBtn').addEventListener('click', () => {
+            if (!subtitleChunks.length) return;
+            let vtt = 'WEBVTT\n\n';
+            subtitleChunks.forEach((c) => {
+                const s = c.timestamp[0] ?? 0;
+                const e = c.timestamp[1] ?? (s + 2);
+                vtt += `${formatVttTime(s)} --> ${formatVttTime(e)}\n${c.text.trim()}\n\n`;
+            });
+            downloadFile(vtt, `${selectedFile.name.replace(/\.[^/.]+$/, "")}_subtitles.vtt`, 'text/vtt');
+        });
+
+        document.getElementById('downloadTxtBtn').addEventListener('click', () => {
+            if (!subtitleChunks.length) return;
+            const txt = subtitleChunks.map(c => c.text.trim()).join('\n');
+            downloadFile(txt, `${selectedFile.name.replace(/\.[^/.]+$/, "")}_transcript.txt`, 'text/plain');
+        });
+
+        document.getElementById('copyAllBtn').addEventListener('click', (e) => {
+            if (!subtitleChunks.length) return;
+            const txt = subtitleChunks.map(c => c.text.trim()).join('\n');
+            navigator.clipboard.writeText(txt);
+            const orig = e.currentTarget.innerHTML;
+            e.currentTarget.innerHTML = `<i class="fa-solid fa-check text-emerald-400"></i> ${currentLang === 'zh' ? '已复制!' : 'Copied!'}`;
+            setTimeout(() => e.currentTarget.innerHTML = orig, 1500);
+        });
+
+        function downloadFile(content, fileName, mimeType) {
+            const blob = new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+    </script>
+</body>
+</html>
