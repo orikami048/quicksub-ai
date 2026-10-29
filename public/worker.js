@@ -1,11 +1,10 @@
-// worker.js - Background Web Worker with Local Proxy & Cloudflare Pages Dual Compatibility
+// worker.js - Background Web Worker with Same-Origin Cloudflare/Local Proxy
 import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3';
 
 env.allowLocalModels = false;
 
-// 环境自适应：本地优先走服务代理，线上静态托管时启用浏览器 CacheStorage
-const isLocal = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
-env.useBrowserCache = !isLocal;
+// 线上与本地均统一启用浏览器 CacheStorage，避免反复拉取大模型
+env.useBrowserCache = true;
 
 let transcriber = null;
 let currentModelId = null;
@@ -19,20 +18,10 @@ self.onmessage = async (e) => {
         const { audioData, modelId, language, device, mirror } = payload;
 
         try {
+            // 无论是本地还是 Cloudflare Worker 线上，均通过同源 /model-proxy/ 反代，100% 解决 CORS 跨域
             const origin = self.location.origin;
-            if (isLocal) {
-                // 本地运行模式：走本地 Python 高速断点续传代理
-                env.remoteHost = `${origin}/model-proxy/${mirror}`;
-                env.remotePathTemplate = '{model}/resolve/{revision}/';
-            } else {
-                // 线上生产模式（如 Cloudflare Pages）：直接连接官方 / 镜像源
-                if (mirror === 'china') {
-                    env.remoteHost = 'https://hf-mirror.com';
-                } else {
-                    env.remoteHost = 'https://huggingface.co';
-                }
-                env.remotePathTemplate = '{model}/resolve/{revision}/';
-            }
+            env.remoteHost = `${origin}/model-proxy/${mirror}`;
+            env.remotePathTemplate = '{model}/resolve/{revision}/';
 
             if (!transcriber || currentModelId !== modelId || currentDevice !== device || currentMirror !== mirror) {
                 const mirrorLabel = mirror === 'china' ? '国内极速镜像 (hf-mirror)' : '全球官方源 (HuggingFace)';

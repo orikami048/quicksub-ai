@@ -1,0 +1,6 @@
+model_cache/
+*.tmp
+*.py
+*.bat
+*.md
+*.backup*
