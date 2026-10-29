@@ -53,7 +53,6 @@
                 </div>
                 <div>
                     <span class="font-bold text-lg tracking-tight">QuickSub<span class="text-indigo-400">.AI</span></span>
-                    <span id="badgeEnv" class="ml-2 text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">WebGPU 纯前端</span>
                 </div>
             </div>
 
@@ -513,7 +512,6 @@
         // Elements
         const langZhBtn = document.getElementById('langZhBtn');
         const langEnBtn = document.getElementById('langEnBtn');
-        const badgeEnv = document.getElementById('badgeEnv');
         const heroTitle = document.getElementById('heroTitle');
         const heroSubtitle = document.getElementById('heroSubtitle');
         const dropZone = document.getElementById('dropZone');
@@ -569,7 +567,6 @@
             currentLang = lang;
             const dict = i18n[lang];
             document.title = dict.title;
-            badgeEnv.textContent = dict.badge;
             heroTitle.innerHTML = dict.heroTitle;
             heroSubtitle.textContent = dict.heroSubtitle;
             dropTitle.textContent = dict.dropTitle;
@@ -769,9 +766,16 @@
                     totalExpected += this.files[k].total;
                 }
                 if (totalExpected === 0) return { pct: 0, loadedMB: "0", totalMB: "0" };
-                const rawPct = Math.round((totalLoaded / totalExpected) * 100);
-                // 确保进度条只单调向前稳健推进，绝对不回退、不跳动
-                this.lastReportedPct = Math.min(99, Math.max(this.lastReportedPct, rawPct));
+                
+                // 核心防假死算法：大模型文件加入前（<100MB）只占前 5%，大权重加入后按真实总容量比例平滑推进
+                let calculatedPct = 0;
+                if (totalExpected > 100 * 1024 * 1024) {
+                    calculatedPct = Math.min(99, Math.floor((totalLoaded / totalExpected) * 100));
+                } else {
+                    calculatedPct = Math.min(5, Math.floor((totalLoaded / totalExpected) * 5));
+                }
+
+                this.lastReportedPct = Math.min(99, Math.max(this.lastReportedPct, calculatedPct));
                 return {
                     pct: this.lastReportedPct,
                     loadedMB: (totalLoaded / (1024 * 1024)).toFixed(1),
